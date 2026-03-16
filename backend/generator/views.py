@@ -564,18 +564,20 @@ def pexels_image(request):
     import requests as http_requests
     from django.core.cache import cache
     from django.conf import settings
+    from django.http import HttpResponse
 
     query = request.GET.get('q', 'abstract')
     w = request.GET.get('w', '800')
     h = request.GET.get('h', '600')
     orientation = request.GET.get('o', 'landscape')
 
-    cache_key = f"pexels:{query}:{orientation}"
-    cached_url = cache.get(cache_key)
-    if cached_url:
-        from django.shortcuts import redirect
-        return redirect(cached_url)
+    # Cache the actual image bytes so iframe can load without redirect
+    cache_key = f"pexels_img_{query}_{orientation}_{w}_{h}".replace(" ", "_")
+    cached = cache.get(cache_key)
+    if cached:
+        return HttpResponse(cached, content_type="image/jpeg")
 
+    img_url = None
     try:
         resp = http_requests.get(
             'https://api.pexels.com/v1/search',
@@ -585,12 +587,21 @@ def pexels_image(request):
         )
         photos = resp.json().get('photos', [])
         if photos:
-            url = photos[0]['src']['large2x']
-            cache.set(cache_key, url, 60 * 60 * 24)
-            from django.shortcuts import redirect
-            return redirect(url)
+            img_url = photos[0]['src'].get('large') or photos[0]['src'].get('large2x')
     except Exception as e:
         logger.warning(f"Pexels API error: {e}")
 
+    if not img_url:
+        img_url = f'https://picsum.photos/{w}/{h}'
+
+    try:
+        img_resp = http_requests.get(img_url, timeout=10)
+        if img_resp.status_code == 200:
+            content_type = img_resp.headers.get('Content-Type', 'image/jpeg')
+            cache.set(cache_key, img_resp.content, 60 * 60 * 24)
+            return HttpResponse(img_resp.content, content_type=content_type)
+    except Exception as e:
+        logger.warning(f"Image fetch error: {e}")
+
     from django.shortcuts import redirect
-    return redirect(f'https://picsum.photos/{w}/{h}')
+    return redirect(img_url)

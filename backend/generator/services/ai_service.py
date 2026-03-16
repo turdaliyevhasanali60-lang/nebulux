@@ -1408,6 +1408,9 @@ def _clean_html(code: str) -> str:
 
 
 def _inject_attached_images(html, files):
+    if not html:
+        return html
+    html = html.replace('src="/api/image/', 'src="https://nebulux.one/api/image/')
     return html
 
 
@@ -1579,7 +1582,16 @@ def generate_website_stream(
         if cfg.provider == PROVIDER_ANTHROPIC:
             stream_gen = _stream_anthropic(cfg, system_prompt, user_content)
         elif cfg.provider == PROVIDER_GOOGLE:
-            stream_gen = _stream_google(cfg, system_prompt, user_content)
+            try:
+                stream_gen = _stream_google(cfg, system_prompt, user_content)
+            except Exception as _google_err:
+                if "503" in str(_google_err) or "UNAVAILABLE" in str(_google_err):
+                    logger.warning("Gemini 2.5 Flash unavailable — falling back to gemini-2.0-flash")
+                    from .model_registry import MODEL_REGISTRY
+                    _fallback_cfg = MODEL_REGISTRY.get("gemini-2.0-flash", cfg)
+                    stream_gen = _stream_google(_fallback_cfg, system_prompt, user_content)
+                else:
+                    raise
         else:
             stream_gen = _stream_openai(cfg, system_prompt, user_content)
     except AIServiceError:
