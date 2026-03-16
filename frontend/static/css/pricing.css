@@ -1,0 +1,553 @@
+/* ═══════════════════════════════════════════════════════
+   Nebulux Pricing Page — Stripe Launch Edition
+   ═══════════════════════════════════════════════════════ */
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --bg: #000000;
+  --card-bg: #141417;
+  --card-featured: #2a2a2e;
+  --text-primary: #ffffff;
+  --text-secondary: #9a9a9a;
+  --accent: #4d9de0;
+  --border: rgba(255,255,255,0.07);
+  --border-featured: rgba(77,157,224,0.5);
+  --check: #9a9a9a;
+}
+
+body {
+  font-family: 'Sora', sans-serif;
+  background: var(--bg);
+  color: var(--text-primary);
+  min-height: 100vh;
+}
+
+/* ===== HERO ===== */
+.hero {
+  text-align: center;
+  padding: 80px 48px 30px;
+}
+.hero h1 {
+  font-size: 42px;
+  font-weight: 700;
+  margin-bottom: 14px;
+  letter-spacing: -0.5px;
+}
+.hero-sub-pricing {
+  font-size: 16px;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+
+/* ===== PRICING GRID ===== */
+.pricing-section {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 32px 80px;
+}
+.pricing-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+/* ── Plan Card Base ── */
+.plan-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 32px 28px;
+  display: flex;
+  flex-direction: column;
+  transition: border-color 0.3s;
+  position: relative;
+  overflow: hidden;
+}
+.plan-icon { width: 48px; height: 48px; margin-bottom: 20px; }
+.plan-icon svg { width: 100%; height: 100%; }
+.plan-name { font-size: 26px; font-weight: 700; margin-bottom: 4px; }
+.plan-tagline { font-size: 14px; color: var(--text-secondary); margin-bottom: 24px; line-height: 1.5; }
+.price-block { margin-bottom: 24px; }
+.price { font-size: 40px; font-weight: 700; letter-spacing: -1px; }
+.price-note { font-size: 13px; color: var(--text-secondary); margin-left: 6px; }
+.divider { height: 1px; background: var(--border); margin-bottom: 24px; }
+.features-label { font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-bottom: 16px; }
+.features { list-style: none; flex: 1; }
+.features li {
+  display: flex; align-items: flex-start; gap: 10px;
+  font-size: 13px; color: var(--text-secondary);
+  padding: 7px 0; line-height: 1.4;
+}
+.check-icon { width: 16px; height: 16px; flex-shrink: 0; margin-top: 1px; opacity: 0.7; }
+.featured-check { opacity: 1; }
+.featured-check path { stroke: #9bd4ff; }
+
+/* ── Plan Button ── */
+.plan-btn {
+  width: 100%;
+  padding: 14px;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: 'Sora', sans-serif;
+  margin-bottom: 28px;
+  border: 1px solid rgba(255,255,255,0.15);
+  background: transparent;
+  color: var(--text-primary);
+  transition: transform .18s ease, box-shadow .18s ease, background .18s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.plan-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  background: rgba(255,255,255,0.03);
+  border-color: rgba(255,255,255,0.22);
+  box-shadow: 0 10px 25px rgba(0,0,0,.5);
+}
+.plan-btn:active:not(:disabled) { transform: translateY(0) scale(.98); }
+.plan-btn:disabled { opacity: 0.35; cursor: default; transform: none; }
+
+/* ── Active Buy Button (Standard Plan) ── */
+.plan-btn-active {
+  background: linear-gradient(135deg, rgba(77,157,224,0.15), rgba(155,212,255,0.08));
+  border: 1px solid rgba(120,180,255,.45);
+  color: #9bd4ff;
+  font-weight: 700;
+}
+.plan-btn-active:hover {
+  background: linear-gradient(135deg, rgba(77,157,224,0.25), rgba(155,212,255,0.12)) !important;
+  border-color: rgba(120,180,255,.65) !important;
+  box-shadow: 0 10px 35px rgba(77,157,224,0.2), 0 0 20px rgba(120,180,255,0.1) !important;
+}
+
+/* ── Featured Card ── */
+.plan-card.featured {
+  border-color: rgba(120,180,255,.45);
+  background: var(--card-bg);
+  box-shadow: 0 0 0 1px rgba(120,180,255,.15) inset;
+}
+
+.popular-badge {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  padding: 6px 12px;
+  font-size: 11px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  border-radius: 999px;
+  color: #9bd4ff;
+  border: 1px solid rgba(120,180,255,.35);
+  background: rgba(120,180,255,.08);
+  backdrop-filter: blur(6px);
+}
+
+/* ══════════════════════════════════════════════════
+   DISABLED / BLURRED PLANS (Free & Pro)
+   Always blurred — regardless of auth state.
+   Uses !important to prevent any JS override.
+   ══════════════════════════════════════════════════ */
+.plan-disabled {
+  position: relative !important;
+  pointer-events: none !important;
+  user-select: none !important;
+}
+.plan-disabled > *:not(.plan-disabled-overlay) {
+  filter: blur(3px) !important;
+  opacity: 0.3 !important;
+  pointer-events: none !important;
+}
+.plan-disabled-overlay {
+  position: absolute !important;
+  inset: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  z-index: 5 !important;
+  background: rgba(0,0,0,0.35) !important;
+  backdrop-filter: blur(2px) !important;
+  border-radius: 20px !important;
+  pointer-events: auto !important;
+}
+.plan-disabled-label {
+  padding: 10px 24px;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: rgba(255,255,255,0.75);
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 12px;
+  backdrop-filter: blur(10px);
+}
+
+/* ══════════════════════════════════════════════════
+   CREDIT PACK LOCK (free plan users)
+   ══════════════════════════════════════════════════ */
+.credits-locked-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 14px 24px;
+  margin-bottom: 28px;
+  background: rgba(255,193,7,0.06);
+  border: 1px solid rgba(255,193,7,0.20);
+  border-radius: 14px;
+  font-size: 14px;
+  color: rgba(255,255,255,0.75);
+}
+.credits-locked-banner svg { flex-shrink: 0; opacity: 0.7; }
+.credits-locked-upgrade {
+  color: #9bd4ff;
+  font-weight: 700;
+  text-decoration: none;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: 'Sora', sans-serif;
+  font-size: 14px;
+  padding: 0;
+}
+.credits-locked-upgrade:hover { text-decoration: underline; }
+
+.credit-grid-locked {
+  position: relative;
+}
+.credit-grid-locked .credit-grid-inner {
+  filter: blur(3px) !important;
+  opacity: 0.35 !important;
+  pointer-events: none !important;
+  user-select: none !important;
+}
+.credit-grid-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 5;
+  border-radius: 18px;
+}
+.credit-grid-overlay-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 28px;
+  background: rgba(20,20,24,0.88);
+  border: 1px solid rgba(120,180,255,.30);
+  border-radius: 16px;
+  backdrop-filter: blur(12px);
+  font-size: 14px;
+  font-weight: 700;
+  color: rgba(255,255,255,0.85);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.credit-grid-overlay-label:hover {
+  border-color: rgba(120,180,255,.55);
+  box-shadow: 0 8px 40px rgba(77,157,224,0.2);
+}
+.credit-grid-overlay-label svg { opacity: 0.7; }
+
+/* ══════════════════════════════════════════════════
+   CREDIT PACKS SECTION
+   ══════════════════════════════════════════════════ */
+.credits-section {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 32px 110px;
+  text-align: center;
+}
+.credits-title {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.6px;
+  margin: 0 0 10px;
+}
+.credits-sub {
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.7;
+  margin: 0 auto 32px;
+  max-width: 520px;
+}
+
+.credit-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-top: 0;
+  text-align: left;
+}
+
+.credit-card {
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.015);
+  border-radius: 18px;
+  padding: 24px 22px 20px;
+  display: flex;
+  flex-direction: column;
+  transition: border-color 0.3s, transform 0.3s;
+}
+.credit-card:hover {
+  border-color: rgba(255,255,255,0.18);
+  transform: translateY(-2px);
+}
+
+.credit-card-featured {
+  border-color: rgba(120,180,255,.35);
+  background: rgba(120,180,255,.02);
+}
+.credit-card-featured:hover {
+  border-color: rgba(120,180,255,.55);
+}
+
+.credit-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.credit-name { font-size: 18px; font-weight: 700; }
+
+.credit-amount {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent);
+  margin-bottom: 10px;
+}
+
+.credit-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.55;
+  margin-bottom: 16px;
+  flex: 1;
+}
+
+.credit-price-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.credit-price { font-size: 26px; font-weight: 800; letter-spacing: -0.6px; }
+.sep { opacity: 0.25; font-size: 14px; }
+.credit-per { font-size: 12px; color: var(--text-secondary); }
+
+.best {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(120,180,255,.30);
+  background: rgba(120,180,255,.08);
+  color: #9bd4ff;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  white-space: nowrap;
+}
+.best-value {
+  border-color: rgba(80,200,120,.35);
+  background: rgba(80,200,120,.08);
+  color: #6ee7a0;
+}
+
+/* ── Buy Button ── */
+.buy-btn {
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(255,255,255,0.06);
+  color: rgba(255,255,255,0.92);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: 'Sora', sans-serif;
+  transition: background 0.2s, border-color 0.2s, transform 0.2s, box-shadow 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.buy-btn:hover {
+  background: rgba(255,255,255,0.10);
+  border-color: rgba(255,255,255,0.22);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+}
+.buy-btn:active { transform: translateY(0); }
+.buy-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+.buy-btn-featured {
+  background: rgba(120,180,255,.10);
+  border-color: rgba(120,180,255,.35);
+  color: #9bd4ff;
+}
+.buy-btn-featured:hover {
+  background: rgba(120,180,255,.18);
+  border-color: rgba(120,180,255,.50);
+  box-shadow: 0 6px 20px rgba(77,157,224,0.15);
+}
+
+/* ── Guarantee Badge ── */
+.credits-guarantee {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 28px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  padding: 10px 18px;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 999px;
+  background: rgba(255,255,255,0.02);
+}
+.credits-guarantee svg {
+  flex-shrink: 0;
+  opacity: 0.5;
+}
+
+/* ══════════════════════════════════════════════════
+   PAYMENT TOAST
+   ══════════════════════════════════════════════════ */
+.payment-toast {
+  position: fixed;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%) translateY(-20px);
+  z-index: 9999;
+  opacity: 0;
+  transition: opacity 0.4s ease, transform 0.4s ease;
+  pointer-events: none;
+}
+.payment-toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+  pointer-events: auto;
+}
+.payment-toast-inner {
+  padding: 14px 28px;
+  border-radius: 14px;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: 'Sora', sans-serif;
+  backdrop-filter: blur(16px);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.4);
+}
+.payment-toast-inner.success {
+  background: rgba(34,197,94,0.12);
+  border: 1px solid rgba(34,197,94,0.35);
+  color: #6ee7a0;
+}
+.payment-toast-inner.error {
+  background: rgba(239,68,68,0.12);
+  border: 1px solid rgba(239,68,68,0.35);
+  color: #fca5a5;
+}
+.payment-toast-inner.info {
+  background: rgba(77,157,224,0.12);
+  border: 1px solid rgba(77,157,224,0.35);
+  color: #9bd4ff;
+}
+
+/* ── Loading state on buttons ── */
+.buy-btn.loading,
+.plan-btn-active.loading {
+  pointer-events: none;
+  opacity: 0.7;
+}
+.buy-btn.loading::after,
+.plan-btn-active.loading::after {
+  content: '';
+  width: 14px;
+  height: 14px;
+  border: 2px solid transparent;
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  margin-left: 6px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ══════════════════════════════════════════════════
+   RESPONSIVE
+   ══════════════════════════════════════════════════ */
+@media (max-width: 860px) {
+  .pricing-grid { grid-template-columns: 1fr; max-width: 420px; margin: 0 auto; }
+  .credit-grid  { grid-template-columns: 1fr; max-width: 420px; margin: 0 auto; }
+  .hero h1 { font-size: 32px; }
+  .credits-title { font-size: 24px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .plan-btn, .buy-btn, .payment-toast {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+/* ══════════════════════════════════════════════════
+   PRIVACY / OPENAI NOTICE
+   Subtle trust signal between hero and plan cards.
+   ══════════════════════════════════════════════════ */
+.privacy-notice-wrap {
+  max-width: 860px;
+  margin: 0 auto 40px;
+  padding: 0 32px;
+}
+.privacy-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 18px 24px;
+  background: rgba(77,157,224,0.04);
+  border: 1px solid rgba(77,157,224,0.18);
+  border-left: 3px solid rgba(77,157,224,0.50);
+  border-radius: 14px;
+  backdrop-filter: blur(8px);
+}
+.privacy-notice-icon {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: #9bd4ff;
+  opacity: 0.8;
+}
+.privacy-notice-text {
+  font-size: 13px;
+  color: rgba(255,255,255,0.6);
+  line-height: 1.7;
+  flex: 1;
+}
+.privacy-notice-text strong {
+  color: rgba(255,255,255,0.88);
+  font-weight: 600;
+  display: block;
+  margin-bottom: 4px;
+}
+.privacy-notice-badge {
+  flex-shrink: 0;
+  align-self: center;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 5px 12px;
+  border-radius: 999px;
+  color: #9bd4ff;
+  border: 1px solid rgba(120,180,255,.25);
+  background: rgba(120,180,255,.06);
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .privacy-notice { flex-wrap: wrap; gap: 12px; }
+  .privacy-notice-badge { align-self: flex-start; }
+}

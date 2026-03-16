@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}NEBULUX — Where ideas come to life{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/style.css' %}">
+{% endblock %}
+
+{% block body_before_wrapper %}
+<div class="giant-planet" id="giantPlanet">
+  <div class="planet-glow"></div>
+  <img src="{% static 'img/planet-2-Photoroom.avif' %}" alt="Giant Planet">
+</div>
+<div class="second-planet" id="secondPlanet">
+  <div class="planet-glow"></div>
+  <img src="{% static 'img/planet-1-Photoroom.avif' %}" alt="Saturn Planet">
+</div>
+<div class="nebula-layer nebula-1"></div>
+<div class="nebula-layer nebula-2"></div>
+<div class="nebula-layer nebula-3"></div>
+{% endblock %}
+
+{% block content %}
+  <section class="hero">
+    <h1>
+      <span class="word word-1">Create</span> <span class="word word-2">What</span> <span class="word word-3">Does</span> <span class="word word-4">Not</span> <span class="word word-5">Yet</span> <span class="word word-6">Exist.</span>
+    </h1>
+    <p class="hero-sub">Describe it. Launch it in seconds.</p>
+    <div class="prompt-container">
+      <div class="prompt-box">
+        <div class="inline-attachments" id="referencePreview"></div>
+        <textarea class="prompt-input" id="promptInput" placeholder="Describe your idea..." rows="1"></textarea>
+        <div class="prompt-required" id="promptRequired" hidden aria-live="polite">Required</div>
+        <div class="prompt-divider" aria-hidden="true"></div>
+        <div class="prompt-bottom">
+          <input type="file" id="referenceFileInput" accept="image/*,.html,.css,.js,.ts,.jsx,.tsx,.py,.json,.md,.txt,.yaml,.yml,.sh,.sql,.php,.rb,.go,.rs,.vue,.env" style="display:none;" aria-hidden="true" multiple>
+          <button class="reference-btn" id="referenceBtn" aria-label="Attach file">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+            </svg>
+            <span id="referenceBtnLabel">Attach</span>
+          </button>
+          <button class="prompt-btn" aria-label="Generate">
+            <span>Generate</span>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="prompt-chips">
+        <button class="prompt-chip" data-prompt="travel">Travel Planner App</button>
+        <button class="prompt-chip" data-prompt="learning">Learning App</button>
+        <button class="prompt-chip" data-prompt="finance">Finance App</button>
+        <button class="prompt-chip" data-prompt="shopping">Shopping App</button>
+      </div>
+    </div>
+  </section>
+
+
+  <section class="showcase" id="showcase">
+    <div class="showcase-label">Your Galaxy</div>
+    <br>
+    <div class="galaxy-empty" id="galaxyEmpty">
+      <p class="galaxy-empty-text">Your galaxy is empty — for now.</p>
+    </div>
+    <div class="showcase-grid galaxy-grid" id="galaxyGrid" style="display:none;"></div>
+  </section>
+{% endblock %}
+
+{% block extra_js %}
+{# Auth gate: intercept Generate before app.js handles it #}
+<script>
+  (function () {
+    function getPromptValue() {
+      var ta = document.getElementById('promptInput');
+      return ta ? ta.value.trim() : '';
+    }
+    function navigateToBuilder(prompt) {
+      if (prompt) {
+        try { localStorage.setItem('nebulux_prompt', prompt); } catch (e) {}
+      }
+      window.location.href = '/builder/' + (prompt ? '?prompt=' + encodeURIComponent(prompt) : '');
+    }
+    document.addEventListener('click', function interceptGenerate(e) {
+      var btn = e.target.closest('.prompt-btn');
+      if (!btn) return;
+      if (window.Auth && window.Auth.isAuthenticated()) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      var prompt = getPromptValue();
+      if (window.Auth) window.Auth.open('Login');
+      document.addEventListener('auth:login', function onLogin() {
+        navigateToBuilder(prompt);
+      }, { once: true });
+    }, true);
+  })();
+</script>
+
+<script>
+  document.addEventListener('selectstart', function(e) {
+    if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+      e.preventDefault();
+    }
+  });
+  document.addEventListener('contextmenu', function(e) {
+    if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+      e.preventDefault();
+    }
+  });
+</script>
+<script src="{% static 'js/pages/app.js' %}" defer></script>
+{% endblock %}
