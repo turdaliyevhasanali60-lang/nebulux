@@ -834,6 +834,31 @@ User colors → use exactly. User says white bg → white. User says one page �
 User says minimal → minimal, no extra features. The user is the designer.
 
 ════════════════════════════════════════════════════════════
+COPY / REFERENCE MODE — WHEN USER PROVIDES A SCREENSHOT OR SAYS "COPY"
+════════════════════════════════════════════════════════════
+If the user says "copy", "replicate", "clone", "make it look like", "same as", or
+attaches a screenshot of an existing website:
+- OVERRIDE all industry palette defaults completely.
+- Extract the EXACT color scheme from the reference (bg, text, accent, muted).
+- Replicate the layout structure and section order from the reference.
+- Match the typography style (serif/sans, weight, size) of the reference.
+- Keep the same navigation structure and footer pattern.
+- Only improve: responsiveness, code quality, image quality.
+- Do NOT apply your own palette or hero variant preferences.
+- The reference IS the design spec — treat it as the highest priority instruction.
+
+════════════════════════════════════════════════════════════
+LOGO & ATTACHED IMAGES — MANDATORY USAGE RULES
+════════════════════════════════════════════════════════════
+If the user attaches an image and mentions "logo", "brand", "our image", "use this":
+- You MUST use the provided data URL as the src of the relevant <img> tag.
+- For logos: place in <nav> as <img src="{data_url}" alt="Logo" class="logo">
+- For product images: use as the product card image src.
+- For hero images: use as the hero background or hero visual src.
+- NEVER write a placeholder, empty src, or text label when a real image was provided.
+- The data URL will appear in the prompt as "EMBEDDABLE DATA URL" — copy it verbatim.
+
+════════════════════════════════════════════════════════════
 QUALITY EXAMPLES — WHAT SEPARATES GOOD FROM BAD
 ════════════════════════════════════════════════════════════
 
@@ -1249,9 +1274,10 @@ def _call_google(
     # Gemini 2.5 Pro requires thinking enabled; Flash works with budget=0
     model_id = cfg.model_id or ""
     if "pro" in model_id:
-        gen_config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=1024)
+        gen_config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=8192)
     else:
-        gen_config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
+        # Flash: 4096 thinking budget — meaningful reasoning without major cost impact
+        gen_config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=4096)
     gen_config = types.GenerateContentConfig(**gen_config_kwargs)
     # Build contents
     if isinstance(user_content, list):
@@ -1381,6 +1407,10 @@ def _clean_html(code: str) -> str:
     return text.strip()
 
 
+def _inject_attached_images(html, files):
+    return html
+
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 #  Public API
@@ -1493,9 +1523,9 @@ def generate_website(
             if pages_check:
                 index_html = pages_check.get("index") or next(iter(pages_check.values()), "")
                 if _is_valid_html(index_html):
-                    return cleaned, tokens
+                    return _inject_attached_images(cleaned, files), tokens
             elif _is_valid_html(cleaned):
-                return cleaned, tokens
+                return _inject_attached_images(cleaned, files), tokens
 
         except AIServiceError:
             raise
@@ -1686,6 +1716,7 @@ def generate_website_stream(
 
     # ── Parse multi-page HTML output ──────────────────────────────────────────
     full_code = _clean_html("".join(html_parts))
+    full_code = _inject_attached_images(full_code, files)
     pages, navigation = _parse_multipage_output(full_code)
 
     if pages:
