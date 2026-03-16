@@ -36,6 +36,7 @@ You can then chat with it to refine, edit, or add new sections — all without t
 - **Project management** — save, reload, and manage multiple projects
 - **Live preview** — instant iframe rendering with device frames (desktop/tablet/mobile)
 - **Google OAuth** — seamless sign-in
+- **Subscription payments** — Lemon Squeezy integration
 
 ---
 
@@ -85,24 +86,75 @@ Nginx + Cloudflare        ← Serves to user with live preview
 
 ```
 nebulux/
-├── backend/                  # Django project
-│   ├── core/                 # Main app (views, models, urls)
-│   │   ├── ai_service.py     # AI generation logic
-│   │   ├── model_registry.py # Multi-provider AI abstraction
-│   │   ├── tasks.py          # Celery async tasks
-│   │   └── models.py         # Project, Page, Chat models
-│   ├── settings.py
-│   └── manage.py
+├── backend/
+│   ├── accounts/                   # User auth, profiles, onboarding
+│   │   ├── models.py
+│   │   ├── views.py
+│   │   ├── backends.py             # Google OAuth backend
+│   │   ├── serializers.py
+│   │   ├── tasks.py
+│   │   └── throttling.py
+│   │
+│   ├── generator/                  # Core website generation app
+│   │   ├── models.py               # WebsiteGeneration model
+│   │   ├── views.py                # Generation & chat endpoints
+│   │   ├── tasks.py                # Celery async tasks
+│   │   ├── authentication.py
+│   │   ├── throttling.py
+│   │   └── services/
+│   │       ├── ai_service.py       # Main AI generation logic
+│   │       ├── model_registry.py   # Multi-provider AI abstraction
+│   │       ├── openai_service.py
+│   │       └── providers/
+│   │           ├── anthropic_provider.py
+│   │           ├── google_provider.py
+│   │           └── openai_provider.py
+│   │
+│   ├── payments/                   # Lemon Squeezy webhooks & billing
+│   │   ├── models.py
+│   │   ├── views.py
+│   │   └── urls.py
+│   │
+│   ├── nebulux/                    # Django project config
+│   │   ├── settings.py
+│   │   ├── urls.py
+│   │   ├── views.py
+│   │   ├── celery.py
+│   │   └── wsgi.py
+│   │
+│   ├── manage.py
+│   └── requirements.txt
 │
-└── frontend/                 # Static frontend
-    ├── index.html            # Landing page
-    ├── builder.html          # Main builder interface
-    ├── dashboard.html        # User projects
-    └── assets/
+└── frontend/
+    ├── templates/                  # Django HTML templates
+    │   ├── base.html
+    │   ├── index.html              # Landing page
+    │   ├── builder.html            # Main builder interface
+    │   ├── pricing.html
+    │   ├── settings.html
+    │   ├── contact.html
+    │   ├── privacy.html
+    │   ├── terms.html
+    │   └── 404.html
+    │
+    └── static/
+        ├── css/
+        │   ├── style.css           # Global styles
+        │   ├── builder.css         # Builder interface
+        │   ├── pricing.css
+        │   ├── settings.css
+        │   └── templates.css
         ├── js/
-        │   ├── builder.js    # Builder UI logic
-        │   └── index.js      # Landing page
-        └── css/
+        │   ├── core/
+        │   │   ├── api.js          # API client
+        │   │   └── auth.js         # JWT auth & refresh logic
+        │   └── pages/
+        │       ├── builder.js      # Builder UI (generation, chat, preview)
+        │       ├── app.js          # Dashboard / project management
+        │       ├── pricing.js
+        │       ├── settings.js
+        │       └── templates.js
+        └── img/
 ```
 
 ---
@@ -168,26 +220,11 @@ python manage.py migrate
 redis-server
 
 # 7. Start Celery worker
-celery -A backend worker --loglevel=info
+celery -A nebulux worker --loglevel=info
 
 # 8. Start Django
 python manage.py runserver
 ```
-
-Then open `frontend/index.html` in your browser or serve it with any static server.
-
----
-
-## 🌍 Production Stack
-
-The production server runs on **Hetzner CPX32** with:
-
-- **Gunicorn** with `gevent` workers (300s timeout for AI generation)
-- **Nginx** as reverse proxy with static file serving
-- **Cloudflare** for SSL, caching, and DDoS protection
-- **PostgreSQL** with automated daily backups
-- **Redis** for Celery task queue and API response caching
-- **Systemd** services for Gunicorn and Celery
 
 ---
 
@@ -199,7 +236,22 @@ Nebulux uses a two-stage AI pipeline:
 
 2. **Generation** (Gemini 2.5 Flash) — Takes the structured spec and generates complete, styled, multi-page HTML/CSS with real Pexels images injected.
 
-3. **Edit Mode** — Subsequent chat messages are classified by intent (add section, change color, rewrite copy, etc.) and routed to targeted edit prompts rather than full regeneration.
+3. **Edit Mode** — Follow-up chat messages are classified by intent and routed to targeted edit prompts rather than full regeneration. Supports image attachments for visual reference.
+
+A `model_registry.py` abstraction layer supports multiple AI providers (Anthropic, Google, OpenAI) with automatic fallback.
+
+---
+
+## 🌍 Production Stack
+
+Running on **Hetzner CPX32** (Ubuntu 24.04):
+
+- **Gunicorn** with `gevent` workers (300s timeout for AI generation)
+- **Nginx** as reverse proxy with static file serving and gzip compression
+- **Cloudflare** for SSL, caching, and DDoS protection
+- **PostgreSQL** with automated daily backups
+- **Redis** for Celery task queue and Pexels API response caching
+- **Systemd** services for Gunicorn and Celery auto-restart
 
 ---
 
@@ -209,17 +261,11 @@ Nebulux runs on a **Standard Plan** subscription via Lemon Squeezy. New users st
 
 ---
 
-## 📸 Screenshots
-
-> Coming soon — [visit nebulux.one](https://nebulux.one) to try it live.
-
----
-
 ## 🏆 Bags Hackathon
 
 Nebulux is participating in the **Bags Hackathon 2026** — Category: **AI Agents**.
 
-Built by a solo developer, fully deployed, and live in production.
+Built solo, fully deployed, and live in production.
 
 ---
 
@@ -228,7 +274,7 @@ Built by a solo developer, fully deployed, and live in production.
 Built with 🌌 by **Hasanali** — solo founder from Uzbekistan.
 
 - 🌐 [nebulux.one](https://nebulux.one)
-- 🐦 [@turdaliyev81185](https://x.com/turdaliyev81185)
+- X [@turdaliyev81185](https://x.com/turdaliyev81185)
 
 ---
 
