@@ -1578,6 +1578,10 @@ def generate_website_stream(
     # Pass spec so scaffold detector picks up sections/features even from vague prompts
     system_prompt = _get_generate_system_prompt(original_prompt, spec, single_page=single_page)
 
+    # For Google provider with native thinking, bypass the <think> state machine
+    # entirely — Gemini processes thinking internally and never emits <think> tags.
+    _google_direct = (cfg.provider == PROVIDER_GOOGLE)
+
     try:
         if cfg.provider == PROVIDER_ANTHROPIC:
             stream_gen = _stream_anthropic(cfg, system_prompt, user_content)
@@ -1599,6 +1603,28 @@ def generate_website_stream(
     except Exception as exc:
         logger.exception("generate_website_stream failed")
         raise AIServiceError(f"generate_website_stream error: {exc}") from exc
+
+    # Google: stream directly without <think> state machine
+    if _google_direct:
+        html_parts: list[str] = []
+        tokens_used = 0
+        for item in stream_gen:
+            if item.get("done"):
+                tokens_used = item.get("tokens_used", 0)
+                break
+            chunk = item.get("chunk", "")
+            if chunk:
+                html_parts.append(chunk)
+                yield {"chunk": chunk}
+        full_code = _clean_html("".join(html_parts))
+        full_code = _inject_attached_images(full_code, files)
+        pages, navigation = _parse_multipage_output(full_code)
+        if pages:
+            index_code = pages.get("index") or next(iter(pages.values()), "")
+            yield {"done": True, "id": generation_id, "full_code": index_code, "pages": pages, "navigation": navigation, "tokens_used": tokens_used}
+        else:
+            yield {"done": True, "id": generation_id, "full_code": full_code, "pages": {}, "navigation": {}, "tokens_used": tokens_used}
+        return
 
     # ── Streaming state machine ────────────────────────────────────────────────
     # States: "before_think" → "in_think" → "after_think"
@@ -2062,7 +2088,7 @@ def classify_intent(
     last_exc = None
     for cfg in cfgs:
         try:
-            response = _dispatch(cfg, system, user, max_tokens=150)
+            response = _dispatch(cfg, system, user, max_tokens=400)
             raw, _ = _extract_text(response, cfg)
             raw = raw.strip()
             if raw.startswith("```"):
