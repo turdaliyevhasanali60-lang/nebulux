@@ -3018,18 +3018,7 @@
 /* ═══════════════════════════════════════════════
    BUILDER — MOBILE LAYOUT
    ═══════════════════════════════════════════════ */
-/* Disable text selection on builder */
-body {
-  -webkit-user-select: none;
-  -moz-user-select: none;
-  user-select: none;
-}
-/* But allow selection inside the chat input and editable fields */
-input, textarea, [contenteditable] {
-  -webkit-user-select: text;
-  -moz-user-select: text;
-  user-select: text;
-}
+/* Text selection enabled globally — users can copy content freely */
 
 @media (max-width: 768px) {
 
