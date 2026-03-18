@@ -1081,7 +1081,15 @@ finishCanvasGeneration(['index']);
       const url = e.data.url || 'unknown';
       console.debug('[nebulux] Navigation blocked in preview:', url);
     }
-  });
+
+    if (e.data.type === 'nebulux:preview-error') {
+      // JS crash inside the iframe (e.g. SyntaxError: Invalid regular expression).
+      // Show the render-error banner so the user knows to regenerate instead of
+      // staring at a blank white preview.
+      const msg = e.data.message || 'Script error in preview';
+      console.warn('[nebulux] Preview JS error:', msg);
+      _showRenderError('⚠️ Preview failed (script error). Please regenerate.');
+    }
 
   /* ============================================================
      PREVIEW — Deterministic iframe lifecycle
@@ -1183,6 +1191,31 @@ finishCanvasGeneration(['index']);
 
         const parent = window.parent;
         const token = ${JSON.stringify(token)};
+
+        // ── Error boundary: catch JS crashes (e.g. broken regex from AI output) ──
+        // Without this, a SyntaxError in the generated page causes a blank white
+        // iframe with no feedback. We catch it and tell the parent to show the
+        // "Preview failed" banner so the user knows to regenerate.
+        window.onerror = function(msg, src, line, col, err) {
+          try {
+            parent.postMessage({
+              type: 'nebulux:preview-error',
+              token: token,
+              message: String(msg || 'Script error'),
+            }, '*');
+          } catch(e) {}
+          return false; // don't suppress — still shows in DevTools
+        };
+        window.addEventListener('unhandledrejection', function(e) {
+          try {
+            parent.postMessage({
+              type: 'nebulux:preview-error',
+              token: token,
+              message: e.reason ? String(e.reason) : 'Unhandled promise rejection',
+            }, '*');
+          } catch(ex) {}
+        });
+        // ── end error boundary ───────────────────────────────────────────────────
 
         // Signal the parent as soon as HTML is parsed — before fonts/images load.
         // This lets the parent clear the render timeout early for sites with
