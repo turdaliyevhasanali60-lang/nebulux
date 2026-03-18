@@ -304,7 +304,7 @@
       `;
 
       const bodyWrap = document.createElement('div');
-      bodyWrap.className = 'atw-code-body';
+      bodyWrap.className = 'atw-code-body atw-code-body--open';
       const pre = document.createElement('pre');
       pre.className = 'atw-code-pre';
       bodyWrap.appendChild(pre);
@@ -358,7 +358,7 @@
     // ── PUBLIC API ────────────────────────────────────────────────────────────
     function show() { _ensure(); }
 
-    function addPhase(phase, label, text) { _ensure(); _addAction(_PHASE_ACTIONS[phase] || label); }
+    function addPhase(phase, label, text) { }
 
     function addWritingRow(slug) {
       _ensure();
@@ -2116,6 +2116,35 @@ finishCanvasGeneration(['index']);
       /* ── Steps / history ── */
       .step-row { display:flex; align-items:center; gap:7px; font-size:12px; color:rgba(200,205,255,.6); margin:2px 0; }
       .step-check { flex-shrink:0; }
+      .msg-inline-code { font-family: 'SF Mono', ui-monospace, monospace; font-size: 11.5px; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.1); border-radius: 4px; padding: 1px 5px; color: rgba(220,225,255,.9); }
+
+      /* ── Message code blocks ── */
+      .msg-code-panel {
+        margin: 6px 0 2px;
+        background: rgba(255,255,255,.03);
+        border: 1px solid rgba(255,255,255,.07);
+        border-radius: 7px; overflow: hidden;
+      }
+      .msg-code-hdr {
+        display: flex; align-items: center; gap: 6px;
+        padding: 6px 10px;
+        font-size: 11px; color: rgba(200,205,255,.5);
+      }
+      .msg-code-lang { flex: 1; font-family: 'SF Mono', monospace; }
+      .msg-code-copy {
+        background: none; border: 1px solid rgba(255,255,255,.1);
+        border-radius: 4px; padding: 2px 7px;
+        font-size: 10px; color: rgba(200,205,255,.5);
+        cursor: pointer; font-family: inherit;
+        transition: color .15s, border-color .15s;
+      }
+      .msg-code-copy:hover { color: #F7941D; border-color: rgba(247,148,29,.4); }
+      .msg-code-pre {
+        margin: 0; padding: 8px 10px;
+        font-family: 'SF Mono', monospace; font-size: 11px;
+        color: rgba(200,205,255,.75); white-space: pre; overflow-x: auto;
+        border-top: 1px solid rgba(255,255,255,.05);
+      }
     `;
     document.head.appendChild(s);
   })();
@@ -2410,7 +2439,7 @@ finishCanvasGeneration(['index']);
         });
         const brandLine = brandName ? `<strong>Brand:</strong> ${brandName}<br>` : '';
         const prefLines = parts.length > 0 ? parts.join('<br>') : '';
-        msg.innerHTML = `<div class="followup-done">${brandLine}${prefLines}</div>`;
+        msg.innerHTML = "";
         Chat.push('ai', 'Preferences: ' + (brandName ? 'Brand: ' + brandName + '. ' : '') + parts.map(p => p.replace(/<[^>]+>/g, '')).join(', '));
         Chat.saveToStorage();
         _false = null;
@@ -2463,7 +2492,7 @@ finishCanvasGeneration(['index']);
         ? data.reply
         : 'How can I help with your site?';
       const contentEl = msgEl.querySelector('.message-content') || msgEl;
-      contentEl.textContent = reply;
+      _renderTextWithCode(contentEl, reply);
       Chat.push('ai', reply);
       Chat.saveToStorage();
     } catch {
@@ -3127,7 +3156,7 @@ finishCanvasGeneration(['index']);
 
               const contentSpan = document.createElement('span');
               contentSpan.className = 'message-content';
-              contentSpan.textContent = text || '';
+              _renderTextWithCode(contentSpan, text || '');
               msg.appendChild(contentSpan);
 
               el.messages.appendChild(msg);
@@ -3161,6 +3190,45 @@ finishCanvasGeneration(['index']);
     }
   });
 
+  function _renderTextWithCode(container, text) {
+    const parts = text.split(/(```[\w]*\n[\s\S]*?```)/g);
+    parts.forEach(part => {
+      const m = part.match(/^```([\w]*)\n([\s\S]*?)```$/);
+      if (m) {
+        const lang = m[1] || 'code';
+        const code = m[2];
+        const panel = document.createElement('div');
+        panel.className = 'msg-code-panel';
+        const hdr = document.createElement('div');
+        hdr.className = 'msg-code-hdr';
+        const langSpan = document.createElement('span');
+        langSpan.className = 'msg-code-lang';
+        langSpan.textContent = lang;
+        const copyBtn = document.createElement('button');
+        copyBtn.className = 'msg-code-copy';
+        copyBtn.textContent = 'Copy';
+        copyBtn.addEventListener('click', () => {
+          navigator.clipboard.writeText(code).then(() => {
+            copyBtn.textContent = 'Copied!';
+            setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1500);
+          }).catch(() => {});
+        });
+        hdr.appendChild(langSpan);
+        hdr.appendChild(copyBtn);
+        const pre = document.createElement('pre');
+        pre.className = 'msg-code-pre';
+        pre.textContent = code;
+        panel.appendChild(hdr);
+        panel.appendChild(pre);
+        container.appendChild(panel);
+      } else if (part.trim()) {
+        const span = document.createElement('span');
+        span.textContent = part;
+        container.appendChild(span);
+      }
+    });
+  }
+
   function addMessage(role, text, isHtml, extraClass) {
     const msg = document.createElement('div');
     msg.className = `message ${role}`;
@@ -3171,7 +3239,7 @@ finishCanvasGeneration(['index']);
     if (isHtml) {
       contentSpan.innerHTML = text;
     } else {
-      contentSpan.textContent = text;
+      _renderTextWithCode(contentSpan, text);
     }
     msg.appendChild(contentSpan);
 

@@ -2160,8 +2160,7 @@ def generate_website_stream(
     hold: str = ""          # small boundary-detection buffer
     html_parts: list[str] = []
     tokens_used = 0
-    thinking_started = True
-    yield {"thinking_start": True}
+    thinking_started = False
 
     for item in stream_gen:
         if item.get("done"):
@@ -2758,8 +2757,7 @@ def _stream_openai(
 
     full_parts: List[str] = []
     tokens_used = 0
-    thinking_started = True
-    yield {"thinking_start": True}
+    thinking_started = False
 
     for chunk in response:
         # Capture usage from the final chunk
@@ -2830,8 +2828,7 @@ def _stream_google(
 
     full_parts: List[str] = []
     tokens_used = 0
-    thinking_started = True
-    yield {"thinking_start": True}
+    thinking_started = False
 
     for chunk in response:
         # Extract thinking and content parts separately
