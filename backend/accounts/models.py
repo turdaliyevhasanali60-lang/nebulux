@@ -84,7 +84,7 @@ class User(AbstractBaseUser, PermissionsMixin):
         max_length=20, choices=PLAN_CHOICES, default=PLAN_FREE, db_index=True
     )
     # ── PAID-ONLY LAUNCH: new users start with 0 credits ──
-    credits = models.PositiveIntegerField(default=0)
+    credits = models.PositiveIntegerField(default=200)
 
     # ── Onboarding
     has_onboarded   = models.BooleanField(default=False)
@@ -124,8 +124,8 @@ class User(AbstractBaseUser, PermissionsMixin):
         # Credits are now TOKEN UNITS (1 TU = 1,000 API tokens).
         # Standard plan: 1,000 TU ≈ 15 complete websites/month.
         return {
-            self.PLAN_FREE:     0,
-            self.PLAN_STANDARD: 1_000,
+            self.PLAN_FREE:     200,
+            self.PLAN_STANDARD: 2_000,
             self.PLAN_PRO:      5_000,
         }.get(self.plan, 0)
 

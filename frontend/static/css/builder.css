@@ -3018,6 +3018,19 @@
 /* ═══════════════════════════════════════════════
    BUILDER — MOBILE LAYOUT
    ═══════════════════════════════════════════════ */
+/* Disable text selection on builder */
+body {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  user-select: none;
+}
+/* But allow selection inside the chat input and editable fields */
+input, textarea, [contenteditable] {
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  user-select: text;
+}
+
 @media (max-width: 768px) {
 
   /* Topbar: single compact row */
@@ -3031,12 +3044,14 @@
   .topbar-divider { display: none !important; }
   .project-title { max-width: 80px !important; font-size: 11px !important; }
   .topbar-center {
-    position: absolute !important;
-    left: 50% !important;
-    transform: translateX(-50%) !important;
+    position: static !important;
+    transform: none !important;
     gap: 4px !important;
+    flex: 1 !important;
+    justify-content: center !important;
   }
   .credits-badge { display: none !important; }
+  .device-group { display: none !important; }
   .action-group { gap: 2px !important; }
   .action-btn {
     width: 28px !important;
@@ -3105,7 +3120,21 @@
   .sidebar-header {
     position: relative !important;
     padding-top: 20px !important;
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+    gap: 6px !important;
+    flex-wrap: nowrap !important;
   }
+  .sidebar-brand { flex: 0 0 auto !important; }
+  .sidebar-brand-label { display: none !important; }
+  .sidebar-logo { height: 18px !important; }
+  .sidebar-tab-group {
+    position: absolute !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+  }
+  .sidebar-tab { padding: 0 8px !important; font-size: 10px !important; }
+  .sidebar-close-btn { margin-left: auto !important; }
   .sidebar-header::before {
     content: '';
     position: absolute;
@@ -3122,27 +3151,31 @@
   /* Pull tab: floating pill button */
   .sidebar-pull-tab {
     position: fixed !important;
-    bottom: 20px !important;
-    left: 50% !important;
+    bottom: 24px !important;
+    right: 16px !important;
+    left: auto !important;
     top: auto !important;
-    right: auto !important;
-    transform: translateX(-50%) !important;
-    width: auto !important;
-    height: 44px !important;
-    padding: 0 22px !important;
-    border-radius: 100px !important;
-    background: #6c5ce7 !important;
-    color: #fff !important;
-    border: none !important;
+    transform: none !important;
+    width: 40px !important;
+    height: 40px !important;
+    padding: 0 !important;
+    border-radius: 12px !important;
+    background: var(--surface-2) !important;
+    color: var(--text-2) !important;
+    border: 1px solid var(--border-2) !important;
     display: flex !important;
     align-items: center !important;
-    gap: 8px !important;
-    font-size: 13px !important;
-    font-weight: 600 !important;
-    font-family: Outfit, sans-serif !important;
-    box-shadow: 0 4px 24px rgba(0,0,0,0.5) !important;
+    justify-content: center !important;
+    font-size: 0 !important;
+    gap: 0 !important;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.3) !important;
     z-index: 400 !important;
     opacity: 1 !important;
+  }
+  .sidebar-pull-tab svg {
+    width: 14px !important;
+    height: 14px !important;
+    stroke: var(--text-2) !important;
   }
   .sidebar-pull-tab.panel-open {
     display: none !important;

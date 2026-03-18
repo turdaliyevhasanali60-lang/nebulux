@@ -304,7 +304,7 @@ GOOGLE_REDIRECT_URI  = config(
 # ─── AI Provider Configuration ───────────────────────────────────────────
 AI_MODELS = {
     "spec":      "claude-haiku-3.5",   # keep Haiku for spec — cheap + accurate
-    "generate":  "gemini-2.5-flash",
+    "generate":  "kimi-k2.5",
     "edit":      "gemini-2.5-flash",
     "fast_edit": "claude-haiku-3.5",
     # "generate": "kimi-k2.5",         # ready — just needs MOONSHOT_API_KEY funded
@@ -500,6 +500,7 @@ LEMON_SQUEEZY_STORE_ID       = config("LEMON_SQUEEZY_STORE_ID", default="")
 
 # Variant IDs (Lemon Squeezy's version of Price IDs)
 LS_VARIANT_STANDARD_MONTHLY = config("LS_VARIANT_STANDARD_MONTHLY", default="")
+LS_VARIANT_PRO_MONTHLY      = config("LS_VARIANT_PRO_MONTHLY", default="")
 LS_VARIANT_STARTER_PACK     = config("LS_VARIANT_STARTER_PACK", default="")
 LS_VARIANT_BUILDER_PACK     = config("LS_VARIANT_BUILDER_PACK", default="")
 LS_VARIANT_AGENCY_PACK      = config("LS_VARIANT_AGENCY_PACK", default="")
@@ -511,7 +512,8 @@ LS_VARIANT_AGENCY_PACK      = config("LS_VARIANT_AGENCY_PACK", default="")
 #   Builder  $8.99 → 850 TU  = $0.0106/TU  (29% cheaper)
 #   Agency  $14.99 → 1,600 TU = $0.0094/TU  (37% cheaper)
 LS_CREDIT_MAP = {
-    "standard_monthly": 1_000,
+    "standard_monthly": 2_000,
+    "pro_monthly":      5_000,
     "starter_pack":     400,
     "builder_pack":     850,
     "agency_pack":      1_600,
@@ -521,7 +523,8 @@ LS_CREDIT_MAP = {
 # (last-write-wins = 1000) so webhook credit lookups always miss.
 # Only add them when the env var actually contains a value.
 _ls_variant_credit_map = {
-    LS_VARIANT_STANDARD_MONTHLY: 1_000,
+    LS_VARIANT_STANDARD_MONTHLY: 2_000,
+    LS_VARIANT_PRO_MONTHLY:      5_000,
     LS_VARIANT_STARTER_PACK:     400,
     LS_VARIANT_BUILDER_PACK:     850,
     LS_VARIANT_AGENCY_PACK:      1_600,

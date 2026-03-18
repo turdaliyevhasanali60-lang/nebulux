@@ -148,6 +148,15 @@
       });
     }
 
+    // Pro plan subscription
+    const proBtn = document.getElementById('buyProBtn');
+    if (proBtn) {
+      proBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        startCheckout('pro_monthly', proBtn);
+      });
+    }
+
     // One-time credit packs
     document.querySelectorAll('.buy-btn[data-product]').forEach((btn) => {
       btn.addEventListener('click', (e) => {

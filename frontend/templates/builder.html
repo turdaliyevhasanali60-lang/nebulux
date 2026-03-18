@@ -6,7 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>NEBULUX Builder</title>
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="{% static 'css/builder.css' %}">
+<link rel="stylesheet" href="{% static 'css/builder.css?v=9' %}">
 <style>
   /* Prevent text selection when clicking the page switcher dropdown */
   .page-selector,
@@ -91,9 +91,7 @@
 <div class="workspace">
   <div class="canvas-area" id="canvasArea">
     <button class="sidebar-pull-tab" id="sidebarOpenBtn" title="Open AI panel">
-      <svg width="12" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-        <path d="M9 3L4 12L9 21"/>
-      </svg>
+      <img src="{% static 'img/logo.png' %}" alt="Nebulux" style="width:20px;height:20px;object-fit:contain;">
     </button>
     <div class="loading-overlay" id="loadingOverlay">
       <div class="lo-mod-wrap">

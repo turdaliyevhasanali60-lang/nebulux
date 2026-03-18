@@ -276,37 +276,112 @@
 
     const chk = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M3 8.5L6.5 12L13 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
-    // Only Standard is currently available. Free and Pro are not offered yet.
     const plans = [
+      {
+        key: 'free',
+        name: 'Free',
+        credits: '200 credits',
+        price: '$0',
+        period: '/month',
+        features: ['200 credits / month', 'Browse & explore only', '1 project', 'Community support'],
+        comingSoon: false,
+      },
       {
         key: 'standard',
         name: 'Standard',
-        credits: '500 credits',
+        credits: '2,000 credits',
         price: '$14.99',
         period: '/m billed monthly',
-        features: ['500 credits / month', '~50 screens', '5 projects', 'Unlimited export', 'Email support'],
+        features: ['~30 websites / month', 'Unlimited pages per website', '5 projects', 'Unlimited export', 'Email support', 'Purchase additional credits'],
+        comingSoon: false,
       },
+      {
+        key: 'pro',
+        name: 'Pro',
+        credits: '5,000 credits',
+        price: '$29',
+        period: '/m billed monthly',
+        features: ['~75 websites / month', 'Unlimited pages per website', 'Unlimited projects', 'Unlimited export to code', 'Purchase additional credits', 'Priority support'],
+        comingSoon: false,
+      },
+    ];
+
+    const packs = [
+      { key: 'starter_pack',  name: 'Starter Pack',  tu: '400 TU',   price: '$4.99',  per: '$0.0125/TU', desc: '~6 generations' },
+      { key: 'builder_pack',  name: 'Builder Pack',  tu: '850 TU',   price: '$8.99',  per: '$0.0106/TU', desc: '~13 generations', popular: true },
+      { key: 'agency_pack',   name: 'Agency Pack',   tu: '1,600 TU', price: '$14.99', per: '$0.0094/TU', desc: '~24 generations', bestValue: true },
     ];
 
     grid.innerHTML = plans.map(p => {
       const isCurrent = p.key === currentPlan;
-      const label = isCurrent ? 'Current plan' : 'Upgrade';
+      const label = isCurrent ? 'Current plan' : (p.comingSoon ? 'Coming Soon' : 'Upgrade');
       const cls   = isCurrent ? 'secondary' : 'accent';
       return `
         <div class="plan-tile${isCurrent ? ' current popular' : ''}">
           ${isCurrent ? '<div class="plan-tile-badge">Your plan</div>' : ''}
+
           <div class="plan-tile-name">${p.name}</div>
           <div class="plan-tile-credits">${p.credits}</div>
           <div class="plan-tile-price">${p.price}</div>
           <div class="plan-tile-period">${p.period}</div>
           <ul class="plan-tile-features">${p.features.map(f => `<li>${chk}<span>${f}</span></li>`).join('')}</ul>
-          <button class="settings-btn ${cls}" ${isCurrent ? 'disabled' : ''} data-plan="${p.key}">${label}</button>
+          <button class="settings-btn ${cls}" ${(isCurrent || p.comingSoon) ? 'disabled' : ''} data-plan="${p.key}">${label}</button>
         </div>`;
     }).join('');
 
     grid.querySelectorAll('.settings-btn[data-plan]:not([disabled])').forEach(btn => {
-      btn.addEventListener('click', () => { window.location.href = '/pricing/'; });
+      btn.addEventListener('click', async () => {
+        const plan = btn.dataset.plan;
+        const product = plan === 'pro' ? 'pro_monthly' : 'standard_monthly';
+        btn.disabled = true;
+        btn.textContent = 'Loading…';
+        try {
+          const data = await API.post('/payments/create-checkout/', { product });
+          if (data.checkout_url) window.location.href = data.checkout_url;
+          else { btn.disabled = false; btn.textContent = 'Upgrade'; }
+        } catch(e) {
+          btn.disabled = false; btn.textContent = 'Upgrade';
+          alert('Checkout error. Please try again.');
+        }
+      });
     });
+
+    // Credit packs section — only show for standard plan users
+    const packsWrap = document.getElementById('settingsPacksWrap');
+    if (packsWrap) {
+      if (currentPlan === 'standard') {
+        packsWrap.style.display = '';
+        packsWrap.innerHTML = `
+          <div class="settings-card-label" style="margin-top:20px">Credit Packs</div>
+          <div class="plan-grid" style="margin-top:12px">${packs.map(p => `
+            <div class="plan-tile${p.popular ? ' current popular' : ''}">
+              ${p.popular ? '<div class="plan-tile-badge">Popular</div>' : ''}
+              ${p.bestValue ? '<div class="plan-tile-badge" style="background:rgba(0,200,100,0.15);color:#00c864">Best Value</div>' : ''}
+              <div class="plan-tile-name">${p.name}</div>
+              <div class="plan-tile-credits">${p.tu}</div>
+              <div class="plan-tile-price">${p.price}</div>
+              <div class="plan-tile-period">${p.per} · ${p.desc}</div>
+              <button class="settings-btn accent" data-pack="${p.key}">Buy</button>
+            </div>`).join('')}
+          </div>`;
+        packsWrap.querySelectorAll('.settings-btn[data-pack]').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            const pack = btn.dataset.pack;
+            btn.disabled = true; btn.textContent = 'Loading…';
+            try {
+              const data = await API.post('/payments/create-checkout/', { product: pack });
+              if (data.checkout_url) window.location.href = data.checkout_url;
+              else { btn.disabled = false; btn.textContent = 'Buy'; }
+            } catch(e) {
+              btn.disabled = false; btn.textContent = 'Buy';
+              alert('Checkout error. Please try again.');
+            }
+          });
+        });
+      } else {
+        packsWrap.style.display = 'none';
+      }
+    }
   }
 
 

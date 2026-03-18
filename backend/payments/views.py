@@ -25,15 +25,17 @@ error_logger = logging.getLogger("payments.webhook.errors")
 
 PRODUCT_VARIANT_MAP = {
     "standard_monthly": getattr(settings, "LS_VARIANT_STANDARD_MONTHLY", ""),
+    "pro_monthly":      getattr(settings, "LS_VARIANT_PRO_MONTHLY", ""),
     "starter_pack":     getattr(settings, "LS_VARIANT_STARTER_PACK", ""),
     "builder_pack":     getattr(settings, "LS_VARIANT_BUILDER_PACK", ""),
     "agency_pack":      getattr(settings, "LS_VARIANT_AGENCY_PACK", ""),
 }
 
-SUBSCRIPTION_PRODUCTS = {"standard_monthly"}
+SUBSCRIPTION_PRODUCTS = {"standard_monthly", "pro_monthly"}
 
 PRODUCT_LABELS = {
     "standard_monthly": "Standard Plan (Monthly)",
+    "pro_monthly":      "Pro Plan (Monthly)",
     "starter_pack":     "Starter Credit Pack",
     "builder_pack":     "Builder Credit Pack",
     "agency_pack":      "Agency Credit Pack",
@@ -344,12 +346,13 @@ def _handle_subscription_created(event):
                 logger.info("Duplicate subscription event %s — skipping", order_id)
                 return
 
+            new_plan = User.PLAN_PRO if product_key == "pro_monthly" else User.PLAN_STANDARD
             User.objects.filter(pk=user.pk).update(
                 credits=F("credits") + credits_to_add,
-                plan=User.PLAN_STANDARD,
+                plan=new_plan,
             )
             _upsert_subscription(user, data, attrs)
-            logger.info("✅ SUBSCRIPTION CREDITS: %d → %s (sub: %s)", credits_to_add, user.email, sub_id)
+            logger.info("✅ SUBSCRIPTION CREDITS: %d → %s (sub: %s, plan: %s)", credits_to_add, user.email, sub_id, new_plan)
     except Exception as exc:
         error_logger.error("SUBSCRIPTION WEBHOOK ERROR: %s", str(exc))
 

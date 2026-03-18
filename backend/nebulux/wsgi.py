@@ -1,3 +1,6 @@
+from gevent import monkey
+monkey.patch_all()
+
 # nebulux/wsgi.py
 """
 WSGI config for Nebulux.

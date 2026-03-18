@@ -241,12 +241,15 @@ def generate_website_view(request):
             status=status.HTTP_402_PAYMENT_REQUIRED,
         )
 
+    # Plan-based model switching: free → Gemini Flash, paid → Kimi K2.5
+    _model_override = "gemini-2.5-flash" if user.plan == "free" else "kimi-k2.5"
+
     def _stream():
         """Generator that yields NDJSON lines and saves the generation at the end."""
         try:
             single_page = request.data.get("single_page") or None
             logger.info("generate_website_view: single_page=%r, request_data_keys=%r", single_page, list(request.data.keys()))
-            for item in generate_website_stream(spec, original_prompt=prompt, files=files, single_page=single_page):
+            for item in generate_website_stream(spec, original_prompt=prompt, files=files, single_page=single_page, model_override=_model_override):
                 if item.get("done"):
                     # Stream finished — save to DB and send final chunk with id
                     html_code   = item["full_code"]
@@ -365,6 +368,9 @@ def modify_website_view(request):
     chat_history = request.data.get("chat_history") or []
 
     ip = get_client_ip(request)
+    # Plan-based model switching: free → Gemini Flash, paid → Kimi K2.5
+    _edit_model_override = None if user.plan == "free" else "kimi-k2.5"
+
     try:
         html_code, tokens = edit_website(
             code, instruction,
@@ -373,6 +379,7 @@ def modify_website_view(request):
             edit_mode=edit_mode,
             scope=scope,
             chat_history=chat_history,
+            model_override=_edit_model_override,
         )
     except AIServiceError as exc:
         type(user).objects.filter(pk=user.pk).update(credits=F("credits") + TU_RESERVATION)

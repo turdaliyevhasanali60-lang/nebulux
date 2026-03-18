@@ -27,6 +27,7 @@ from typing import Any, Dict, Generator, List, Optional, Tuple
 from django.conf import settings
 
 from .model_registry import (
+    MODEL_REGISTRY,
     PROVIDER_ANTHROPIC,
     PROVIDER_GOOGLE,
     PROVIDER_OPENAI,
@@ -657,7 +658,8 @@ HERO: [variant letter A/B/C/D/E/F] — [1 sentence explaining why this variant f
 FONT: [pairing letter A/B/C/D/E] — [font names]
 UNIQUE DETAIL: [one specific memorable element: e.g. "floating product shadow that shifts on scroll", "bold 180px section number as background watermark", "asymmetric card grid with one oversized card"]
 SECTIONS PLAN: [list every section in order with a one-line note on what makes each one specific to this site]
-DARK OR LIGHT: [light / dark + one sentence justification]
+DARK OR LIGHT: [light / dark + one sentence justification based on the STRICT PROHIBITION rule]
+DIFFERENTIATION: [one specific design choice that NO other AI website builder would make for this exact site — e.g. "diagonal section dividers instead of horizontal", "oversized rotated typography as background watermark", "asymmetric card grid with one hero card 2x larger", "hand-drawn style border on feature cards"]
 </think>
 ---PAGE:index---
 <!DOCTYPE html>...
@@ -702,10 +704,13 @@ CORE DESIGN PHILOSOPHY — NON-NEGOTIABLE
    #fff to #f8f9fa to #fff to dark accent band to #fff to footer.
    Creates rhythm without monotony.
 
-6. DARK BACKGROUNDS: ONLY WHEN CORRECT
-   Correct: entertainment, gaming, AI-tech, nightlife, crypto, fitness.
-   Wrong: e-commerce, healthcare, education, food, fashion, SaaS.
-   When unsure: use white.
+6. DARK BACKGROUNDS: STRICT PROHIBITION
+   ONLY these industries may use dark backgrounds: entertainment, gaming, AI-tech,
+   nightlife, crypto, photography, fitness.
+   ALL other industries MUST use white or off-white (#fff, #fafafa, #f8f9fa, #fffbf5).
+   This is NON-NEGOTIABLE. E-commerce, healthcare, education, food, restaurant,
+   fashion, SaaS, law, real estate, logistics → white background, no exceptions.
+   When unsure: white. Dark = wrong unless it's in the approved list above.
 
 7. CARDS ARE WHITE
    Background: #ffffff or #f8f9fa. Border: 1px solid #e5e7eb OR soft shadow.
@@ -727,7 +732,65 @@ CARD STYLES — MANDATORY
 STANDARD: bg:#fff; border-radius:20px; padding:28px; box-shadow:0 2px 12px rgba(0,0,0,0.06); border:1px solid #f0f0f0; hover:translateY(-4px)+shadow
 PRODUCT: bg:#fff; border-radius:16px; overflow:hidden; image top (aspect-ratio:1/1, object-fit:cover, bg:#f8f9fa); info bottom padding:16px; name bold; price 20px bold; full-width cart button; wishlist heart top-right; sale badge top-left (#ef4444)
 FEATURE: border-radius:16px; padding:32px 28px; icon 48px×48px border-radius:12px accent-bg; title 18px bold; desc 14px #6b7280
-TESTIMONIAL: border-radius:16px; padding:28px; stars in accent; quote italic 16px; avatar 44px + name bold + role accent color; highlighted: border:2px solid var(--accent)
+TESTIMONIAL SECTION — COMPLETE SPECIFICATION (follow every detail):
+
+SECTION WRAPPER:
+  Background: #f8f9fa (light gray — NOT white, creates visual separation)
+  Padding: 100px 0
+  Section heading: centered H2, NO subtext paragraph below it
+
+CARD COUNT & LAYOUT:
+  Always exactly 5 testimonials total in the data
+  Always exactly 3 cards visible at once
+  Layout: 3-column CSS grid with overflow hidden on container
+  Center card (index 1): full opacity, scale(1.04), border:2px solid var(--accent), box-shadow:0 8px 40px rgba(0,0,0,0.12), z-index:2
+  Left/right cards (index 0, 2): opacity:0.75, scale(0.97), no border, box-shadow:0 2px 12px rgba(0,0,0,0.06)
+  All cards: background:#fff; border-radius:16px; padding:32px; transition:all 0.3s ease
+
+CARD CONTENT (top to bottom):
+  1. Stars row: 5 stars using ★ character, color:var(--accent), font-size:18px, margin-bottom:16px
+  2. Large quote mark: content:"❝"; font-size:56px; color:var(--accent); line-height:0.8; font-family:Georgia,serif; display:block; margin-bottom:8px
+  3. Quote text: font-size:16px; line-height:1.7; font-style:italic; color:#374151; max 2-3 sentences, SPECIFIC outcome (e.g. "found my friend after 10 years", "connected with a business partner")
+  4. Divider: margin:20px 0; border:none; border-top:1px solid #f0f0f0
+  5. Avatar row: display:flex; align-items:center; gap:12px
+     - Avatar: 44px circle img from https://i.pravatar.cc/150?img=N (use different N per card)
+     - Right of avatar: name (font-weight:700; font-size:15px; color:#111) on top, city + role (font-size:13px; color:var(--accent)) below
+
+NAVIGATION:
+  Two arrow buttons outside card container, vertically centered
+  Left arrow: position absolute left:-20px; 40px circle; background:#fff; border:1px solid #e5e7eb; cursor:pointer; hover:background:var(--accent); color changes to white on hover; transition:all 0.2s
+  Right arrow: same but right:-20px
+  Arrow icons: ← → using Font Awesome fa-arrow-left fa-arrow-right
+  NO dot pagination anywhere
+
+JAVASCRIPT (copy this exact logic):
+  const cards = document.querySelectorAll('.testimonial-card');
+  const testimonials = [...array of 5 testimonial objects with quote/name/role/city/img...];
+  let current = 0;
+  function showTestimonials(idx) {
+    const indices = [(idx-1+5)%5, idx, (idx+1)%5];
+    cards.forEach((card, i) => {
+      const t = testimonials[indices[i]];
+      card.querySelector('.t-quote').textContent = t.quote;
+      card.querySelector('.t-name').textContent = t.name;
+      card.querySelector('.t-role').textContent = t.role + ' · ' + t.city;
+      card.querySelector('.t-avatar').src = t.img;
+      card.classList.toggle('center-card', i === 1);
+    });
+    current = idx;
+  }
+  document.querySelector('.t-prev').addEventListener('click', () => showTestimonials((current-1+5)%5));
+  document.querySelector('.t-next').addEventListener('click', () => showTestimonials((current+1)%5));
+  let autoplay = setInterval(() => showTestimonials((current+1)%5), 5000);
+  document.querySelector('.testimonials-section').addEventListener('mouseenter', () => clearInterval(autoplay));
+  document.querySelector('.testimonials-section').addEventListener('mouseleave', () => { autoplay = setInterval(() => showTestimonials((current+1)%5), 5000); });
+  showTestimonials(0);
+
+CONTENT RULES:
+  - 5 unique testimonials, each with a SPECIFIC outcome (not generic praise)
+  - Use realistic local names and Uzbek cities: Tashkent, Samarkand, Bukhara, Namangan, Andijan
+  - Roles: Teacher, Engineer, Entrepreneur, Student, Doctor, Designer, Manager
+  - Each quote: 2-3 sentences max, mentions something specific that happened
 
 ════════════════════════════════════════════════════════════
 TYPOGRAPHY PAIRINGS
@@ -767,21 +830,31 @@ HERO VARIANTS
 ════════════════════════════════════════════════════════════
 A) SPLIT — left:text(eyebrow+h1+p+2 buttons), right:photo/mockup. grid:1fr 1fr; min-height:90vh; Best:Healthcare/SaaS/Law
 B) FULL-BLEED PHOTO — image absolute inset:0 object-fit:cover; overlay gradient; text z-index:1 color:#fff. Best:Fashion/Restaurant/Hotel/University
-C) CENTERED MINIMAL — H1 clamp(60px,10vw,120px) centered, 2 buttons, white bg. Best:Agency/Portfolio
+C) CENTERED MINIMAL — H1 clamp(60px,10vw,120px) centered, 2 buttons, white bg. Best:Agency/Portfolio ONLY
 D) PRODUCT FLOAT — product dominates on clean bg, text left/below, feature tags, slide counter. Best:Electronics
 E) EDITORIAL OVERSIZED — H1 120-180px, image overlaps text layers, minimal nav, decorative number. Best:Fashion/Luxury
 F) BENTO DASHBOARD — eyebrow+H1+p+buttons centered, product screenshot below in browser frame, logo strip. Best:SaaS/AI
 
+DEFAULT HERO RULE — MANDATORY:
+When the user does not specify a layout, DEFAULT to variant A (SPLIT) for all industries
+except Agency/Portfolio (use C or E) and Restaurant/Hotel/Fashion (use B or E).
+NEVER default to centered-only hero (C) for generic business, SaaS, healthcare, or e-commerce sites.
+A split hero with a real image always looks more professional than centered text alone.
+
 ════════════════════════════════════════════════════════════
 REQUIRED SECTIONS BY INDUSTRY
 ════════════════════════════════════════════════════════════
-EDUCATION: Hero(campus photo+Apply+Tour) → Stats bar(enrolled/faculty/ranking/alumni) → Programs grid(3-col: category/name/duration/apply) → Why Choose Us(4 icon cards) → Admission Steps(numbered) → Testimonials(students) → News & Events(3-col blog) → CTA band(dark: Apply deadline) → Footer
+EDUCATION: Hero(campus photo+Apply+Tour) → Stats bar(enrolled/faculty/ranking/alumni) → Programs grid(3-col: category/name/duration/apply) → Why Choose Us(4 icon cards) → Admission Steps(numbered) → Testimonials(carousel style) → News & Events(3-col blog) → CTA band(dark: Apply deadline) → Footer
 E-COMMERCE: Sticky nav(logo+search+wishlist+cart) → Category nav row → Hero banner(full-width+countdown) → Category grid(6-8 icons) → Flash Deals(timer+4 cards+badges) → Product grid(4-col:image/name/stars/price/add-to-cart/wishlist/urgency) → Newsletter → Footer
 RESTAURANT: Hero(full-bleed+Reserve+Menu) → About(split:story+chef) → Featured Menu(3 dish cards:photo/name/desc/price) → Gallery(3×2 grid) → Reservations(form+hours+map) → Reviews(3 cards+rating) → Footer
 HEALTHCARE: Hero(split:stats+headline left, doctor right) → Services(6 icon cards) → How It Works(3-4 steps) → Stats band(4 numbers dark) → Doctors(3 photo cards+book button) → Testimonials → Booking form → Footer
 SAAS: Hero(eyebrow+headline+screenshot) → Logo strip → Features bento → How It Works(3 steps) → Pricing(3 cards middle highlighted) → Testimonials → FAQ accordion → CTA band → Footer
 FITNESS: Hero(full-bleed athlete+gradient+stacked headline+Trustpilot) → Stats(4 numbers dark) → Programs(3 cards) → Trainers(3 cards) → Transformation/testimonials → Pricing(3 tiers) → CTA(free trial) → Footer
 CREATIVE AGENCY: Hero(oversized statement) → Services(large list) → Portfolio(3-col grid) → Process(4 steps) → About(split:team+manifesto) → Client logos → Testimonials → Contact CTA → Footer
+
+CONTACT PAGE (any industry): Split layout — left:H2+desc+email+phone+address+socials | right:floating form card. Max-width:1200px. Form fields: name, email, message, full-width submit. NEVER centered stacked layout.
+
+PRICING PAGE (any industry): 3 cards horizontal. Middle card highlighted. Tier label + price + desc + full-width button + checklist. Optional toggle for annual/monthly.
 
 ════════════════════════════════════════════════════════════
 FOOTER PATTERN — MANDATORY
@@ -826,6 +899,230 @@ BAD: product, photo, image, item, thing
 Every image DIFFERENT keyword. Avatars: https://i.pravatar.cc/150?img={1-70}
 Icons: Font Awesome https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css
 NEVER source.unsplash.com.
+
+════════════════════════════════════════════════════════════
+LIQUID GLASS DESIGN SYSTEM — COMPLETE IMPLEMENTATION
+════════════════════════════════════════════════════════════
+When user asks for "liquid glass", "glassmorphism", or "Apple glass" UI — use this EXACT system.
+NEVER invent your own glass — copy these patterns verbatim.
+
+━━━ STEP 1: SVG FILTER (MANDATORY — place once in <body>, hidden) ━━━
+<svg style="display:none">
+  <filter id="glass-distortion">
+    <feTurbulence type="turbulence" baseFrequency="0.008" numOctaves="2" result="noise"/>
+    <feDisplacementMap in="SourceGraphic" in2="noise" scale="77"/>
+  </filter>
+</svg>
+
+━━━ STEP 2: BACKGROUND (MANDATORY — glass is invisible without it) ━━━
+body must have a rich background. Use ONE of:
+  Option A (gradient): background: linear-gradient(135deg, #1a1a2e, #16213e, #0f3460);
+  Option B (image): background: url('/api/image/?q=abstract+colorful+blurred+bokeh&w=1920&h=1080&o=landscape') center/cover no-repeat;
+  Option C (mesh): background: radial-gradient(ellipse at 20% 50%, #7c3aed 0%, transparent 50%), radial-gradient(ellipse at 80% 20%, #2563eb 0%, transparent 50%), #0a0a0a;
+
+━━━ STEP 3: THE UNIVERSAL 4-LAYER GLASS STRUCTURE ━━━
+Every glass element uses this EXACT HTML structure — never deviate:
+
+<div class="glass-[component]">
+  <div class="glass-filter"></div>      <!-- Layer 1: blur + distortion -->
+  <div class="glass-overlay"></div>     <!-- Layer 2: tint -->
+  <div class="glass-specular"></div>    <!-- Layer 3: edge shine -->
+  <div class="glass-content">          <!-- Layer 4: actual content -->
+    [your content here]
+  </div>
+</div>
+
+CSS for the 3 base layers (add once, all glass elements share these):
+.glass-filter, .glass-overlay, .glass-specular {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+.glass-filter {
+  z-index: 1;
+  backdrop-filter: blur(4px);
+  filter: url(#glass-distortion) saturate(120%) brightness(1.15);
+}
+.glass-overlay {
+  z-index: 2;
+  background: rgba(255,255,255,0.25);
+}
+.glass-specular {
+  z-index: 3;
+  box-shadow: inset 1px 1px 1px rgba(255,255,255,0.75);
+}
+.glass-content {
+  position: relative;
+  z-index: 4;
+  color: #fff;
+}
+
+━━━ COMPONENT PATTERNS (copy these exactly) ━━━
+
+GLASS NAVBAR (fixed, floating pill):
+.glass-nav {
+  position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+  width: 90%; max-width: 1100px;
+  border-radius: 12px; overflow: hidden; background: transparent;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.2);
+}
+.glass-nav .glass-content {
+  padding: 16px 32px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.nav-item { color: #fff; text-decoration: none; padding: 8px 16px; border-radius: 8px; transition: background 0.2s; }
+.nav-item:hover { background: rgba(255,255,255,0.1); }
+.nav-item.active { background: rgba(255,255,255,0.2); }
+
+GLASS CARD:
+.glass-card {
+  position: relative; border-radius: 20px; overflow: hidden;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.2);
+}
+.glass-card .glass-content { padding: 28px; }
+
+GLASS BUTTON:
+.glass-button {
+  position: relative; padding: 12px 28px; border: none; border-radius: 12px;
+  cursor: pointer; overflow: hidden; background: transparent;
+  transition: transform 0.2s ease;
+}
+.glass-button:hover { transform: scale(1.05); }
+.glass-button:active { transform: scale(0.95); }
+.glass-button .glass-content { font-weight: 600; font-size: 16px; white-space: nowrap; }
+
+GLASS ICON BUTTON (square):
+.glass-icon {
+  position: relative; width: 64px; height: 64px;
+  border-radius: 16px; overflow: hidden; cursor: pointer;
+  transition: transform 0.2s ease;
+}
+.glass-icon:hover { transform: scale(1.1); }
+.glass-icon .glass-content {
+  width: 100%; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+}
+.glass-icon svg { width: 60%; height: 60%; color: #fff; }
+
+GLASS FORM / MODAL PANEL:
+.glass-form {
+  position: relative; border-radius: 20px; overflow: hidden;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.2);
+}
+.glass-form .glass-content { padding: 30px; }
+.glass-input {
+  width: 100%; padding: 12px 15px 12px 45px;
+  background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 10px; color: #fff; font-size: 16px; box-sizing: border-box;
+  transition: all 0.3s ease;
+}
+.glass-input:focus { outline: none; background: rgba(255,255,255,0.2); border-color: rgba(255,255,255,0.5); transform: translateY(-2px); }
+.glass-input::placeholder { color: rgba(255,255,255,0.5); }
+.glass-submit {
+  width: 100%; padding: 12px; margin-top: 10px;
+  background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3);
+  border-radius: 10px; color: #fff; font-size: 16px; font-weight: 600;
+  cursor: pointer; transition: all 0.3s ease;
+}
+.glass-submit:hover { background: rgba(255,255,255,0.3); }
+
+GLASS SIDEBAR:
+.glass-sidebar {
+  position: relative; border-radius: 20px; overflow: hidden;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.2);
+}
+.sidebar-header { padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.1); }
+.sidebar-nav-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 20px; color: #fff; text-decoration: none;
+  transition: background 0.3s ease;
+}
+.sidebar-nav-item:hover, .sidebar-nav-item.active { background: rgba(255,255,255,0.1); }
+
+GLASS TOGGLE SWITCH:
+.glass-toggle { display: flex; align-items: center; gap: 12px; cursor: pointer; }
+.toggle-track {
+  position: relative; width: 60px; height: 32px;
+  border-radius: 16px; overflow: hidden;
+}
+.toggle-thumb {
+  position: absolute; z-index: 4; top: 4px; left: 4px;
+  width: 24px; height: 24px; border-radius: 50%;
+  overflow: hidden; transition: transform 0.3s ease;
+}
+.toggle-thumb .glass-overlay { background: rgba(255,255,255,0.9); }
+input:checked + .toggle-track .toggle-thumb { transform: translateX(28px); }
+input:checked + .toggle-track .glass-overlay { background: rgba(255,255,255,0.4); }
+.toggle-input { position: absolute; opacity: 0; pointer-events: none; }
+
+GLASS ACCORDION / DROPDOWN (pure CSS, no JS):
+.glass-dropdown { position: relative; }
+.dropdown-toggle { position: absolute; opacity: 0; pointer-events: none; }
+.dropdown-header { position: relative; border-radius: 12px; overflow: hidden; cursor: pointer; display: block; }
+.dropdown-header .glass-content { padding: 16px; display: flex; justify-content: space-between; align-items: center; }
+.dropdown-arrow { width: 20px; height: 20px; transition: transform 0.3s ease; }
+.dropdown-content { position: relative; overflow: hidden; max-height: 0; transition: max-height 0.3s ease; border-radius: 12px; margin-top: 8px; }
+.dropdown-content .glass-content { padding: 0 16px; opacity: 0; transform: translateY(-10px); transition: all 0.3s ease; }
+.dropdown-toggle:checked ~ .dropdown-header .dropdown-arrow { transform: rotate(180deg); }
+.dropdown-toggle:checked ~ .dropdown-content { max-height: 200px; }
+.dropdown-toggle:checked ~ .dropdown-content .glass-content { padding: 16px; opacity: 1; transform: translateY(0); }
+
+GLASS SEARCH BAR:
+.glass-search { position: relative; border-radius: 20px; overflow: hidden; box-shadow: 0 6px 24px rgba(0,0,0,0.2); }
+.search-container { position: relative; padding: 20px; display: flex; align-items: center; }
+.search-icon { position: absolute; left: 35px; color: #fff; opacity: 0.8; pointer-events: none; }
+.search-input { width: 100%; padding: 12px 45px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 12px; color: #fff; font-size: 16px; transition: all 0.4s ease; }
+.search-input:focus { outline: none; background: rgba(255,255,255,0.2); border-color: rgba(255,255,255,0.5); transform: translateY(-2px); }
+.search-input::placeholder { color: rgba(255,255,255,0.6); }
+.search-suggestions { padding: 0 20px 20px; max-height: 0; opacity: 0; overflow: hidden; transform: translateY(-10px); transition: all 0.5s ease; }
+.search-suggestions.active { max-height: 300px; opacity: 1; transform: translateY(0); }
+.suggestion-item { padding: 8px 12px; border-radius: 8px; cursor: pointer; color: #fff; transition: all 0.3s ease; }
+.suggestion-item:hover { background: rgba(255,255,255,0.1); transform: translateX(5px); }
+
+━━━ MOUSE-REACTIVE SPECULAR (add to every glass page) ━━━
+Add this JS once — works on ALL glass elements automatically:
+<script>
+document.querySelectorAll('.glass-filter,.glass-overlay,.glass-specular,.glass-content').forEach(el => {
+  const parent = el.closest('[class*="glass-"]');
+  if (!parent) return;
+});
+document.querySelectorAll('[class*="glass-"]:not(.glass-filter):not(.glass-overlay):not(.glass-specular):not(.glass-content)').forEach(el => {
+  el.addEventListener('mousemove', function(e) {
+    const r = this.getBoundingClientRect();
+    const x = e.clientX - r.left, y = e.clientY - r.top;
+    const spec = this.querySelector('.glass-specular');
+    if (spec) spec.style.background = `radial-gradient(circle at ${x}px ${y}px, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0.05) 30%, transparent 60%)`;
+  });
+  el.addEventListener('mouseleave', function() {
+    const spec = this.querySelector('.glass-specular');
+    if (spec) spec.style.background = 'none';
+  });
+});
+</script>
+
+━━━ MANDATORY RULES ━━━
+1. EVERY glass element uses the 4-layer structure: glass-filter + glass-overlay + glass-specular + glass-content
+2. The SVG filter goes ONCE in the page — all elements share it
+3. Background MUST be gradient or image — glass on solid white is invisible
+4. ALL text inside glass is #fff — never dark text on glass
+5. NEVER use backdrop-filter alone without the SVG filter — it looks generic
+6. The specular inset box-shadow is what creates the glass edge — never skip it
+7. Dark mode: change glass-overlay to rgba(0,0,0,0.25) and specular to rgba(255,255,255,0.15)
+8. Apply mouse-reactive specular JS to all glass pages — it makes it feel alive
+9. Font Awesome icons: add cdnjs link in <head> when using icon-based components
+
+════════════════════════════════════════════════════════════
+BANNED DEFAULTS — NEVER USE THESE UNLESS USER EXPLICITLY ASKS
+════════════════════════════════════════════════════════════
+These are what every other AI website generator produces. Nebulux must never do this:
+  ✗ Centered hero with ONLY text and no supporting visual element
+  ✗ Dark background (#000, #0a0a0a, #111, #1a1a1a) for non-entertainment/gaming/fitness/crypto sites
+  ✗ Blue (#3b82f6, #2563eb, #1d4ed8) or violet (#6366f1, #7c3aed) as the default accent color
+  ✗ Inter, system-ui, or -apple-system as the only font choice
+  ✗ A single centered CTA button as the only hero action
+  ✗ Generic headings: "Welcome to", "Introducing", "The Future of", "Transform Your"
+  ✗ Card grids with identical height/width cards in perfect rows
+  ✗ Footer with nothing but copyright text
 
 ════════════════════════════════════════════════════════════
 USER INSTRUCTIONS — ALWAYS OVERRIDE DEFAULTS
@@ -902,6 +1199,127 @@ Why it's bad: colored card bg, inline styles, sharp corners, lorem-quality copy.
   <p>Push your changes live in under 10 seconds. No build pipeline, no waiting, no surprises.</p>
 </div>
 Why it's good: white bg, soft shadow, icon, specific copy, hover interaction in CSS.
+
+════════════════════════════════════════════════════════════
+HERO TEXT DENSITY — MANDATORY
+════════════════════════════════════════════════════════════
+Hero section contains MAX 3 elements: eyebrow label + H1 + 2 buttons.
+Subtext paragraph in hero: MAX 10 words. Preferably none.
+NEVER write a paragraph explaining the business in the hero.
+The H1 must stand alone and be strong enough without explanation.
+If you need to explain, do it in the FIRST SECTION below the hero, not in the hero itself.
+Inner page section headers: heading + MAX 1 short sentence (under 12 words). Never a full paragraph above a content grid.
+
+════════════════════════════════════════════════════════════
+PAGE LAYOUT TEMPLATES — USE THESE EXACT PATTERNS
+════════════════════════════════════════════════════════════
+
+CONTACT PAGE (always):
+  Left col (40%): H2 "Get in Touch" + 2-line description + email + phone + address + social icons
+  Right col (60%): floating form card (name, email, message, submit button full-width)
+  NEVER stack form full-width. NEVER use a centered layout for contact.
+
+SERVICES PAGE (always):
+  Title: LEFT-ALIGNED H1, no centered heading, no intro paragraph above cards
+  Cards: image-top cards for physical/local businesses, icon-only cards for professional/digital services
+  Layout: 3-col grid, 2 rows max. Card = image/icon + title + 1-line desc + "Learn More" link
+  CTA band at bottom: full-bleed with person/product image breaking out of container
+
+TESTIMONIALS SECTION (always):
+  Carousel style: center card elevated (larger, stronger shadow, accent border)
+  Left and right cards: partially visible, smaller
+  Each card: large quote mark (accent color) + quote text + avatar + name bold + role in accent color
+  Dot pagination below. NEVER use a static 3-column equal grid for testimonials.
+
+PRICING PAGE (always):
+  3 tiers side by side. Middle card: highlighted with accent bg or accent border.
+  Each card: tier label pill + large price + short description + full-width CTA button + feature checklist
+  Optional: annual/monthly toggle above cards
+  Alternative for premium brands: vertical stacked rows (image 12 style) with last row accent-colored
+
+BLOG LISTING PAGE (always):
+  Left-aligned page title + filter tabs (All, Category1, Category2...)
+  Featured post: large image left (50%), title + excerpt + read more right (50%)
+  Below: 3-col card grid. Card = image top + category tag + title + 2-line excerpt + author + date
+  NEVER use a centered hero with paragraph text on blog pages
+
+BLOG SINGLE PAGE (always):
+  Left-aligned H1 title (no centered title)
+  Byline row: avatar + author name + category tag + date + read time — all inline
+  Featured image below byline, full width
+  Body text: max-width 680px centered, 18px, line-height 1.8
+
+ABOUT PAGE (always):
+  Split hero: text+stats left (H1 + 2-3 stat numbers inline) + professional photo right
+  Second section reverses: image left, bullet point list right (4-6 benefits with checkmarks)
+  Team section: 3-col cards with circular photos, name, role, 1-line bio
+  NEVER use a full-bleed photo hero for about pages (except creative/media agencies)
+
+STATS (always):
+  Embed stats INLINE in hero or about section. Format: large number + small label below.
+  NEVER create a standalone "Stats" section with just 4 numbers and nothing else.
+  Stats must always be part of a larger section (hero, about, CTA band).
+
+SECTION ORDER — ENFORCE THIS FORMULA:
+  1. Hero (H1 + CTA + visual)
+  2. Trust bar (client logos or stats — thin strip)
+  3. Problem/Pain point (what the user struggles with)
+  4. Solution/Services (how you solve it — card grid)
+  5. Proof/Portfolio (work samples or case studies)
+  6. Testimonials (carousel)
+  7. About (split section)
+  8. FAQ (accordion)
+  9. CTA band (dark or accent bg, newsletter or contact CTA)
+  10. Footer
+
+════════════════════════════════════════════════════════════
+COMMON MISTAKES — NEVER DO THESE
+════════════════════════════════════════════════════════════
+
+TESTIMONIAL CAROUSEL:
+- Active/center card MUST be fully visible, never half-clipped
+- Container: padding: 0 80px so center card has breathing room
+- Start at index 1 (middle card), never index 0 (left card)
+- overflow:hidden on outer wrapper only, not on inner track
+- Side cards: opacity:0.5, scale:0.9, partially visible on edges
+
+DARK/ACCENT BACKGROUND SECTIONS (CTA bands, dark headers):
+- NEVER use var(--accent) for highlighted text — it will be invisible against accent bg
+- Highlighted words on dark bg: use #ffffff or rgba(255,255,255,0.9)
+- Example: <span style="color:#fff;text-decoration:underline">Found</span> NOT <span class="accent">Found</span>
+- Always check: if section bg is dark, ALL text including spans must be light
+
+FONT AWESOME ICONS:
+- ONLY use these verified FA 6.5 icon names. Never invent or guess icon names:
+  fa-magnifying-glass, fa-user, fa-user-group, fa-users, fa-handshake,
+  fa-shield, fa-shield-halved, fa-envelope, fa-phone, fa-star, fa-check,
+  fa-arrow-right, fa-arrow-left, fa-bars, fa-xmark, fa-lock, fa-globe,
+  fa-building, fa-heart, fa-bolt, fa-chart-line, fa-briefcase,
+  fa-location-dot, fa-clock, fa-calendar, fa-image, fa-camera,
+  fa-paper-plane, fa-circle-check, fa-house, fa-gear, fa-pen,
+  fa-trash, fa-plus, fa-minus, fa-info, fa-question, fa-exclamation,
+  fa-shop, fa-truck, fa-credit-card, fa-bag-shopping, fa-tag,
+  fa-graduation-cap, fa-book, fa-stethoscope, fa-hospital, fa-dumbbell
+- If unsure: use fa-circle-check or fa-star — they always exist
+
+CARD GRIDS:
+- NEVER create a 3+1 layout (3 cards row 1, 1 orphan card row 2)
+- Use 3 cards (1 row) OR 4 cards (2x2 grid) OR 6 cards (2 rows of 3)
+- 3 cards: grid-template-columns: repeat(3, 1fr) — EXACT CSS, no auto-fit
+- 4 cards: grid-template-columns: repeat(2, 1fr) — EXACT CSS, always 2x2
+- 6 cards: grid-template-columns: repeat(3, 1fr) — EXACT CSS, always 2 rows
+- NEVER use repeat(auto-fit, minmax(...)) for feature/benefit card grids
+- Count your cards before writing CSS. 4 items = 2 columns. No exceptions.
+
+SECTION HEADINGS:
+- NEVER place a paragraph of text between a section heading and its content grid
+- Heading → content grid, nothing in between
+- If explanation is needed: max 10 words, muted color, font-size:16px
+
+CTA BAND TEXT:
+- Main headline: max 6 words
+- Supporting text: max 10 words or none at all
+- One button only
 
 ════════════════════════════════════════════════════════════
 TECHNICAL RULES
@@ -1036,6 +1454,18 @@ def _get_generate_system_prompt(user_prompt: str = "", spec: dict | None = None,
     so the scaffold detector can pick the correct constraint block even when
     the prompt is vague but the spec's sections/features reveal intent.
     """
+    import random as _rand
+    # Inject a randomized accent suggestion to prevent repetitive blue/violet defaults.
+    # This seeds variety — the model may override it based on industry palette rules,
+    # but having a concrete suggestion breaks the statistical pull toward blue/violet.
+    _accent_pool = [
+        "#b5451b", "#c9a84c", "#b45309", "#92400e", "#c084a0",
+        "#0d9488", "#0891b2", "#1e3a5f", "#e63946", "#84cc16",
+        "#22c55e", "#a3e635", "#9333ea", "#db2777", "#f59e0b",
+        "#10b981", "#0e7490", "#be185d", "#15803d", "#b91c1c",
+    ]
+    _accent_suggestion = _rand.choice(_accent_pool)
+
     tokens = _load_design_tokens()
     if tokens:
         token_section = (
@@ -1053,8 +1483,24 @@ def _get_generate_system_prompt(user_prompt: str = "", spec: dict | None = None,
 
     scaffold_section = _get_integration_scaffolds(user_prompt, spec)
 
+    # Only suggest accent if user hasn't specified one in their prompt/spec
+    _user_specified_color = (
+        spec.get("primary_color") if spec else None
+    ) or any(c in (user_prompt or "").lower() for c in ["color", "colour", "#", "rgb", "accent"])
+    if not _user_specified_color:
+        accent_section = (
+            "\n════════════════════════════════════════════════════════════\n"
+            "ACCENT COLOR SEED — use this as your starting accent suggestion\n"
+            "════════════════════════════════════════════════════════════\n"
+            f"Suggested accent for this generation: {_accent_suggestion}\n"
+            "You may use this directly or adjust it to match the industry palette.\n"
+            "DO NOT default to generic blue (#3b82f6) or violet (#6366f1) instead.\n"
+        )
+    else:
+        accent_section = ""
+
     prompt = (_GENERATE_SYSTEM_PROMPT_BASE
-        .replace('{token_block}', token_section)
+        .replace('{token_block}', token_section + accent_section)
         .replace('{scaffold_block}', scaffold_section))
 
     if single_page:
@@ -1274,9 +1720,9 @@ def _call_google(
     # Gemini 2.5 Pro requires thinking enabled; Flash works with budget=0
     model_id = cfg.model_id or ""
     if "pro" in model_id:
-        gen_config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=8192)
+        gen_config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=1024)
     else:
-        # Flash: 4096 thinking budget — meaningful reasoning without major cost impact
+        # Flash: 0 budget — native thinking disabled, rely on <think> prompt instructions
         gen_config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=4096)
     gen_config = types.GenerateContentConfig(**gen_config_kwargs)
     # Build contents
@@ -1488,7 +1934,7 @@ def generate_website(
       If the LLM returns invalid HTML, automatically re-prompts up to 2 more times
       with a corrective system message appended before failing out.
     """
-    cfg = get_model_config("generate")
+    cfg = MODEL_REGISTRY[model_override] if model_override else get_model_config("generate")
     user_text = _build_generation_prompt(spec, original_prompt)
     user_content = _build_user_content(user_text, files)
     # Pass spec so scaffold detector picks up sections/features even from vague prompts
@@ -1548,6 +1994,7 @@ def generate_website_stream(
     original_prompt: str = "",
     files: list | None = None,
     generation_id: int | None = None,   # FIX #6: caller passes the DB record ID
+    model_override: str | None = None,  # plan-based model switching
 ) -> Generator[dict, None, None]:
     """
     Stream a multi-page HTML website from a spec.
@@ -1572,7 +2019,7 @@ def generate_website_stream(
          "navigation": {...}, "tokens_used": N}
             — final item once the full stream is parsed.
     """
-    cfg = get_model_config("generate")
+    cfg = MODEL_REGISTRY[model_override] if model_override else get_model_config("generate")
     user_text = _build_generation_prompt(spec, original_prompt)
     user_content = _build_user_content(user_text, files)
     # Pass spec so scaffold detector picks up sections/features even from vague prompts
@@ -1591,13 +2038,12 @@ def generate_website_stream(
             except Exception as _google_err:
                 if "503" in str(_google_err) or "UNAVAILABLE" in str(_google_err):
                     logger.warning("Gemini 2.5 Flash unavailable — falling back to gemini-2.0-flash")
-                    from .model_registry import MODEL_REGISTRY
                     _fallback_cfg = MODEL_REGISTRY.get("gemini-2.0-flash", cfg)
                     stream_gen = _stream_google(_fallback_cfg, system_prompt, user_content)
                 else:
                     raise
         else:
-            stream_gen = _stream_openai(cfg, system_prompt, user_content)
+            stream_gen = _stream_openai_with_429_fallback(cfg, system_prompt, user_content)
     except AIServiceError:
         raise
     except Exception as exc:
@@ -1612,6 +2058,15 @@ def generate_website_stream(
             if item.get("done"):
                 tokens_used = item.get("tokens_used", 0)
                 break
+            if item.get("thinking_start"):
+                yield {"thinking_start": True}
+                continue
+            if item.get("thinking_chunk"):
+                yield {"thinking_chunk": item["thinking_chunk"]}
+                continue
+            if item.get("thinking_end"):
+                yield {"thinking_end": True}
+                continue
             chunk = item.get("chunk", "")
             if chunk:
                 html_parts.append(chunk)
@@ -1638,7 +2093,8 @@ def generate_website_stream(
     hold: str = ""          # small boundary-detection buffer
     html_parts: list[str] = []
     tokens_used = 0
-    thinking_started = False
+    thinking_started = True
+    yield {"thinking_start": True}
 
     for item in stream_gen:
         if item.get("done"):
@@ -1787,6 +2243,7 @@ def edit_website(
     edit_mode: str | None = None,
     scope: str | None = None,   # 'element' | 'full' | None (auto)
     chat_history: list | None = None,   # recent conversation turns for context
+    model_override: str | None = None,  # plan-based model switching
 ) -> Tuple[str, int]:
     """
     Edit an existing website based on an instruction.
@@ -1818,9 +2275,9 @@ def edit_website(
     _simple_modes = {"content", "style"}
     _task = "fast_edit" if (edit_mode or "").lower() in _simple_modes else "edit"
     try:
-        cfg = get_model_config(_task)
+        cfg = MODEL_REGISTRY[model_override] if model_override else get_model_config(_task)
     except Exception:
-        cfg = get_model_config("edit")  # fallback if fast_edit not configured
+        cfg = MODEL_REGISTRY[model_override] if model_override else get_model_config("edit")  # fallback if fast_edit not configured
 
     # ── Task 1 (new): Semantic Firewall — classify the instruction BEFORE any LLM work ──
     # Raises AIServiceError immediately if a mode-boundary violation is detected.
@@ -2212,6 +2669,20 @@ def validate_api_key() -> bool:
 #  Streaming helpers — yield dicts for views.py
 # ──────────────────────────────────────────────────────────────────────────────
 
+def _stream_openai_with_429_fallback(cfg, system, user_content):
+    """Wraps _stream_openai; catches 429 mid-stream, falls back to gemini-2.5-flash."""
+    try:
+        yield from _stream_openai(cfg, system, user_content)
+    except Exception as _e:
+        if "429" in str(_e) or "overloaded" in str(_e).lower() or "rate_limit" in str(_e).lower():
+            logger.warning("Kimi 429 mid-stream — falling back to gemini-2.5-flash")
+            _fb = MODEL_REGISTRY.get("gemini-2.5-flash")
+            if _fb:
+                yield from _stream_google(_fb, system, user_content)
+                return
+        raise
+
+
 def _stream_openai(
     cfg: ModelConfig, system: str, user_content: list | str,
 ) -> Generator[dict, None, None]:
@@ -2220,6 +2691,8 @@ def _stream_openai(
 
     full_parts: List[str] = []
     tokens_used = 0
+    thinking_started = True
+    yield {"thinking_start": True}
 
     for chunk in response:
         # Capture usage from the final chunk
@@ -2227,9 +2700,24 @@ def _stream_openai(
             tokens_used = int(getattr(chunk.usage, "total_tokens", 0) or 0)
 
         delta = chunk.choices[0].delta if chunk.choices else None
-        if delta and delta.content:
-            full_parts.append(delta.content)
-            yield {"chunk": delta.content}
+        if delta:
+            # reasoning_content = Kimi/DeepSeek thinking stream
+            reasoning = getattr(delta, "reasoning_content", None)
+            if reasoning:
+                if not thinking_started:
+                    yield {"thinking_start": True}
+                    thinking_started = True
+                yield {"thinking_chunk": reasoning}
+            # regular content
+            if delta.content:
+                if thinking_started:
+                    yield {"thinking_end": True}
+                    thinking_started = False
+                full_parts.append(delta.content)
+                yield {"chunk": delta.content}
+
+    if thinking_started:
+        yield {"thinking_end": True}
 
     full_code = _clean_html("".join(full_parts))
     yield {"done": True, "full_code": full_code, "tokens_used": tokens_used}
@@ -2270,19 +2758,42 @@ def _stream_anthropic(
 def _stream_google(
     cfg: ModelConfig, system: str, user_content: list | str,
 ) -> Generator[dict, None, None]:
-    """Stream from Google Gemini. Yields {"chunk":…} then {"done":True,…}."""
+    """Stream from Google Gemini. Yields thinking events then {"chunk":…} then {"done":True,…}."""
     response = _call_google(cfg, system, user_content, stream=True, max_tokens=cfg.max_output_tokens)
 
     full_parts: List[str] = []
     tokens_used = 0
+    thinking_started = True
+    yield {"thinking_start": True}
 
     for chunk in response:
-        text = ""
-        if hasattr(chunk, "text") and chunk.text:
-            text = chunk.text
-        if text:
-            full_parts.append(text)
-            yield {"chunk": text}
+        # Extract thinking and content parts separately
+        candidates = getattr(chunk, "candidates", None) or []
+        if candidates:
+            parts = getattr(candidates[0].content, "parts", None) or []
+            for part in parts:
+                part_text = getattr(part, "text", "") or ""
+                is_thought = getattr(part, "thought", False)
+                if is_thought and part_text:
+                    if not thinking_started:
+                        yield {"thinking_start": True}
+                        thinking_started = True
+                    yield {"thinking_chunk": part_text}
+                elif part_text:
+                    if thinking_started:
+                        yield {"thinking_end": True}
+                        thinking_started = False
+                    full_parts.append(part_text)
+                    yield {"chunk": part_text}
+        else:
+            # Fallback: no candidates, use chunk.text
+            text = getattr(chunk, "text", "") or ""
+            if text:
+                if thinking_started:
+                    yield {"thinking_end": True}
+                    thinking_started = False
+                full_parts.append(text)
+                yield {"chunk": text}
 
         # Capture usage from final chunk
         if hasattr(chunk, "usage_metadata") and chunk.usage_metadata:
@@ -2290,6 +2801,9 @@ def _stream_google(
                 getattr(chunk.usage_metadata, "prompt_token_count", 0)
                 + getattr(chunk.usage_metadata, "candidates_token_count", 0)
             )
+
+    if thinking_started:
+        yield {"thinking_end": True}
 
     full_code = _clean_html("".join(full_parts))
     yield {"done": True, "full_code": full_code, "tokens_used": tokens_used}

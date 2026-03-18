@@ -406,7 +406,8 @@
       if (_timerRaf) cancelAnimationFrame(_timerRaf);
       if (_typeRaf) cancelAnimationFrame(_typeRaf);
       if (_body) _body.innerHTML = "";
-      if (_container) _container.style.display = "none";
+      if (_container && _container.parentNode) _container.parentNode.removeChild(_container);
+      _container = null; _toggle = null; _body = null; _labelEl = null; _timerEl = null;
       _startTime = 0; _isDone = false; _timerRaf = null;
       _typeQueue = []; _typeRaf = null;
       _thinkTextEl = null;
@@ -3849,8 +3850,10 @@ finishCanvasGeneration(['index']);
             el.projectTitle.textContent = state.projectName;
             const activePage = getCurrentPage();
             state.currentCode = activePage ? (activePage.code || '') : '';
-            log('project_loaded', { projectId: state.projectId, source: 'localStorage', pages: state.pages.length });
-            return !!state.currentCode;
+            log('project_loaded', { projectId: state.projectId, source: 'localStorage', pages: state.pages.length, hasCode: !!state.currentCode });
+            if (state.currentCode) return true;
+            // Code is empty — fall through to API fallback if possible
+            console.log('[Nebulux] load: localStorage entry has no code, trying API fallback');
           }
         }
       } catch (e) {
@@ -3920,13 +3923,18 @@ finishCanvasGeneration(['index']);
       }
 
       // ── Step 3: API fallback (integer ID — new device or cleared storage) ──
-      // Only makes sense when the project ID is the DB integer. proj_* IDs
-      // are local-only; there is no API route to recover them.
-      if (!isApiId) return false;
+      if (!isApiId) {
+        console.log('[Nebulux] load: not an API id, giving up. projectId=', state.projectId);
+        return false;
+      }
 
       try {
         const useAuth = window.Auth && typeof Auth.apiFetch === 'function';
-        if (!useAuth || !Auth.isAuthenticated()) return false;
+        console.log('[Nebulux] load: trying API fallback. isApiId=', isApiId, 'useAuth=', useAuth, 'isAuth=', Auth && Auth.isAuthenticated && Auth.isAuthenticated());
+        if (!useAuth || !Auth.isAuthenticated()) {
+          console.log('[Nebulux] load: auth not ready, cannot fetch');
+          return false;
+        }
 
         // FIX #4: CONFIG.apiBaseUrl already includes /api, so do NOT prepend it again.
         const res = await Auth.apiFetch(`${CONFIG.apiBaseUrl}/websites/${state.projectId}/`);
@@ -4007,6 +4015,36 @@ finishCanvasGeneration(['index']);
   sidebarCloseBtn?.addEventListener('click', () => setSidebarOpen(false));
   sidebarOpenBtn?.addEventListener('click', () => setSidebarOpen(sidebar?.classList.contains('collapsed')));
 
+  // Mobile swipe to open/close sidebar
+  if ('ontouchstart' in window && sidebar) {
+    let _swipeStartY = 0;
+    let _swipeStartX = 0;
+    sidebar.addEventListener('touchstart', e => {
+      _swipeStartY = e.touches[0].clientY;
+      _swipeStartX = e.touches[0].clientX;
+    }, { passive: true });
+    sidebar.addEventListener('touchend', e => {
+      const dy = e.changedTouches[0].clientY - _swipeStartY;
+      const dx = Math.abs(e.changedTouches[0].clientX - _swipeStartX);
+      if (Math.abs(dy) > 60 && dx < 60) {
+        if (dy > 0) setSidebarOpen(false); // swipe down → close
+      }
+    }, { passive: true });
+    // Swipe up from bottom of screen to open
+    document.addEventListener('touchstart', e => {
+      _swipeStartY = e.touches[0].clientY;
+      _swipeStartX = e.touches[0].clientX;
+    }, { passive: true });
+    document.addEventListener('touchend', e => {
+      const dy = e.changedTouches[0].clientY - _swipeStartY;
+      const dx = Math.abs(e.changedTouches[0].clientX - _swipeStartX);
+      const fromBottom = window.innerHeight - _swipeStartY < 80;
+      if (dy < -60 && dx < 60 && fromBottom && sidebar.classList.contains('collapsed')) {
+        setSidebarOpen(true); // swipe up from bottom edge → open
+      }
+    }, { passive: true });
+  }
+
   $$('.sidebar-tab').forEach(tab => {
     tab.addEventListener('click', () => {
       $$('.sidebar-tab').forEach(t => t.classList.remove('active'));
@@ -4083,7 +4121,7 @@ finishCanvasGeneration(['index']);
   });
   el.sendBtn.addEventListener('click', sendMessage);
   el.chatInput.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+    if (e.key === 'Enter' && !e.shiftKey && !('ontouchstart' in window)) { e.preventDefault(); sendMessage(); }
   });
 
   /* ============================================================
@@ -5088,12 +5126,60 @@ finishCanvasGeneration(['index']);
 
     } else if (_hasProject) {
       // ── ?project= in URL but load failed / code missing ──────────────────
-      // This happens on: hard-refresh after localStorage was cleared, or the
-      // project data was evicted. Show an error — DO NOT re-generate.
+      // localStorage was cleared or evicted. Try fetching from server first.
       el.projectTitle.textContent = state.projectName || 'Project';
       updatePageUI();
       try { localStorage.removeItem('nebulux_prompt_' + _userNamespace()); } catch (_) { }
-      addMessage('ai', '⚠ Could not load this project — your browser storage may have been cleared. If you have an internet connection, try refreshing the page. If the problem persists, you can re-create it from your original prompt.');
+
+      const _projectApiId = /^\d+$/.test(String(state.projectId)) ? state.projectId : null;
+      console.log('[Nebulux] restore: projectId=', state.projectId, 'apiId=', _projectApiId);
+      if (_projectApiId) {
+        addMessage('ai', '⏳ Restoring your project from the server...');
+        (window.Auth && typeof Auth.authFetch === 'function'
+          ? Auth.authFetch('/api/websites/' + _projectApiId + '/')
+          : fetch('/api/websites/' + _projectApiId + '/'))
+        .then(r => {
+          console.log('[Nebulux] project fetch status:', r.status, 'id:', _projectApiId);
+          return r.ok ? r.json() : Promise.reject('http_' + r.status);
+        })
+        .then(data => {
+          console.log('[Nebulux] project fetch data keys:', Object.keys(data));
+          const code = data.generated_code || (data.pages_json && Object.values(JSON.parse(typeof data.pages_json === 'string' ? data.pages_json : JSON.stringify(data.pages_json)))[0]);
+          console.log('[Nebulux] code length:', code ? code.length : 0);
+          if (!code) throw new Error('empty');
+          // Restore into state
+          state.currentCode = code;
+          if (data.pages_json) {
+            try {
+              state.pages = typeof data.pages_json === 'string' ? JSON.parse(data.pages_json) : data.pages_json;
+            } catch(_) {}
+          }
+          if (data.title) {
+            state.projectName = data.title;
+            el.projectTitle.textContent = data.title;
+          }
+          // Save back to localStorage so next load is instant
+          const _ns = _userNamespace();
+          const _storeKey = 'nebulux_project_' + _ns + '_' + state.projectId;
+          try {
+            localStorage.setItem(_storeKey, JSON.stringify({
+              code, pages: state.pages, name: state.projectName,
+              lastGenerationId: _projectApiId, ts: Date.now()
+            }));
+          } catch(_) {}
+          updatePageUI();
+          updatePreview(state.currentCode);
+          // Remove the loading message and confirm
+          const msgs = document.querySelectorAll('.msg-bubble');
+          if (msgs.length) msgs[msgs.length - 1].closest('.msg')?.remove();
+          addMessage('ai', '✅ Project restored successfully.');
+        })
+        .catch(() => {
+          addMessage('ai', '⚠ Could not load this project — your browser storage may have been cleared. If you have an internet connection, try refreshing the page. If the problem persists, you can re-create it from your original prompt.');
+        });
+      } else {
+        addMessage('ai', '⚠ Could not load this project — your browser storage may have been cleared. If you have an internet connection, try refreshing the page. If the problem persists, you can re-create it from your original prompt.');
+      }
 
     } else {
       // ── No project yet — this is a genuine first-time generation ─────────

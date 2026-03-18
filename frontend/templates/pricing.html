@@ -33,7 +33,7 @@
 {% block content %}
 <section class="hero">
   <h1>Choose Your Plan</h1>
-  <p class="hero-sub-pricing">Simple, transparent pricing. Build up to 15 websites a month.</p>
+  <p class="hero-sub-pricing">Simple, transparent pricing. No hidden fees.</p>
 
 </section>
 
@@ -41,11 +41,8 @@
 <section class="pricing-section" id="plans">
   <div class="pricing-grid">
 
-    <!-- Free — BLURRED / DISABLED -->
-    <div class="plan-card plan-disabled">
-      <div class="plan-disabled-overlay">
-        <span class="plan-disabled-label">Coming soon</span>
-      </div>
+    <!-- Free -->
+    <div class="plan-card">
       <div class="plan-icon">
         <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
           <circle cx="24" cy="12" r="4" stroke="white" stroke-width="1.5"/>
@@ -66,8 +63,8 @@
       <div class="divider"></div>
       <div class="features-label">What's included:</div>
       <ul class="features">
-        <li><svg class="check-icon" viewBox="0 0 16 16" fill="none"><path d="M3 8.5L6.5 12L13 5" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>0 credits / month</li>
-        <li><svg class="check-icon" viewBox="0 0 16 16" fill="none"><path d="M3 8.5L6.5 12L13 5" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Browse &amp; explore only</li>
+        <li><svg class="check-icon" viewBox="0 0 16 16" fill="none"><path d="M3 8.5L6.5 12L13 5" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>200 credits / month</li>
+        <li><svg class="check-icon" viewBox="0 0 16 16" fill="none"><path d="M3 8.5L6.5 12L13 5" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Build up to 3 websites</li>
         <li><svg class="check-icon" viewBox="0 0 16 16" fill="none"><path d="M3 8.5L6.5 12L13 5" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>1 project</li>
         <li><svg class="check-icon" viewBox="0 0 16 16" fill="none"><path d="M3 8.5L6.5 12L13 5" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Community support</li>
       </ul>
@@ -103,21 +100,17 @@
       <div class="divider"></div>
       <div class="features-label">What's included:</div>
       <ul class="features">
-        <li><svg class="check-icon featured-check" viewBox="0 0 16 16" fill="none"><path d="M3 8.5L6.5 12L13 5" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>~15 websites / month</li>
+        <li><svg class="check-icon featured-check" viewBox="0 0 16 16" fill="none"><path d="M3 8.5L6.5 12L13 5" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>~30 websites / month</li>
         <li><svg class="check-icon featured-check" viewBox="0 0 16 16" fill="none"><path d="M3 8.5L6.5 12L13 5" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Unlimited pages per website</li>
         <li><svg class="check-icon featured-check" viewBox="0 0 16 16" fill="none"><path d="M3 8.5L6.5 12L13 5" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>5 projects</li>
         <li><svg class="check-icon featured-check" viewBox="0 0 16 16" fill="none"><path d="M3 8.5L6.5 12L13 5" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Unlimited export to code</li>
-        <li><svg class="check-icon featured-check" viewBox="0 0 16 16" fill="none"><path d="M3 8.5L6.5 12L13 5" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Unlimited export to Figma</li>
         <li><svg class="check-icon featured-check" viewBox="0 0 16 16" fill="none"><path d="M3 8.5L6.5 12L13 5" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Email support</li>
         <li><svg class="check-icon featured-check" viewBox="0 0 16 16" fill="none"><path d="M3 8.5L6.5 12L13 5" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Purchase additional credits</li>
       </ul>
     </div>
 
-    <!-- Pro — BLURRED / DISABLED -->
-    <div class="plan-card plan-disabled">
-      <div class="plan-disabled-overlay">
-        <span class="plan-disabled-label">Coming Soon</span>
-      </div>
+    <!-- Pro — COMING SOON -->
+    <div class="plan-card">
       <div class="plan-icon">
         <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
           <circle cx="24" cy="8" r="4" stroke="white" stroke-width="1.5"/>
@@ -141,13 +134,19 @@
         <span class="price">$29</span>
         <span class="price-note">/ month</span>
       </div>
-      <button class="plan-btn" disabled>Coming Soon</button>
+      <button class="plan-btn plan-btn-active" id="buyProBtn" data-product="pro_monthly">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+        Get Pro
+      </button>
       <div class="divider"></div>
       <div class="features-label">Everything in Standard, plus:</div>
       <ul class="features">
-        <li><svg class="check-icon" viewBox="0 0 16 16" fill="none"><path d="M3 8.5L6.5 12L13 5" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>2,400 credits / month</li>
-        <li><svg class="check-icon" viewBox="0 0 16 16" fill="none"><path d="M3 8.5L6.5 12L13 5" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>~300 screens</li>
+        <li><svg class="check-icon" viewBox="0 0 16 16" fill="none"><path d="M3 8.5L6.5 12L13 5" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>5,00200 credits / month</li>
+        <li><svg class="check-icon" viewBox="0 0 16 16" fill="none"><path d="M3 8.5L6.5 12L13 5" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>~75 websites / month</li>
         <li><svg class="check-icon" viewBox="0 0 16 16" fill="none"><path d="M3 8.5L6.5 12L13 5" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Unlimited projects</li>
+        <li><svg class="check-icon" viewBox="0 0 16 16" fill="none"><path d="M3 8.5L6.5 12L13 5" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Unlimited pages per website</li>
+        <li><svg class="check-icon" viewBox="0 0 16 16" fill="none"><path d="M3 8.5L6.5 12L13 5" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Unlimited export to code</li>
+        <li><svg class="check-icon" viewBox="0 0 16 16" fill="none"><path d="M3 8.5L6.5 12L13 5" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Purchase additional credits</li>
         <li><svg class="check-icon" viewBox="0 0 16 16" fill="none"><path d="M3 8.5L6.5 12L13 5" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Priority support</li>
       </ul>
     </div>

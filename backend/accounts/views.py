@@ -200,7 +200,7 @@ def verify_otp_view(request):
                 is_email_verified = True,
                 is_active         = True,
                 plan              = User.PLAN_FREE,
-                credits           = 0,      # Paid-only launch: no free credits
+                credits           = 200,    # Free plan starter credits
             )
             # Assign the pre-hashed password directly
             user.password = pending["hashed_password"]
@@ -374,7 +374,7 @@ def google_auth_view(request):
             google_id         = google_id,
             is_email_verified = True,
             plan              = User.PLAN_FREE,
-            credits           = 0,      # Paid-only launch: no free credits
+            credits           = 200,    # Free plan starter credits
         )
         logger.info("New user via Google: %s", email)
     else:
@@ -660,7 +660,7 @@ def google_callback_view(request):
             google_id         = user_info.get("id", ""),
             is_email_verified = True,
             plan              = User.PLAN_FREE,
-            credits           = 0,      # Paid-only launch: no free credits
+            credits           = 200,    # Free plan starter credits
         )
         logger.info("New user via Google OAuth: %s", email)
     else:
