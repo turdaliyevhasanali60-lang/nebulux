@@ -1842,6 +1842,63 @@ def _parse_json_response(raw: str) -> dict:
         raise AIServiceError(f"Failed to parse JSON from AI response: {exc}\nRaw: {raw[:500]}")
 
 
+def _sanitize_js_regexes(html: str) -> str:
+    """
+    Find JS regex literals inside <script> blocks that have unbalanced
+    parentheses (or other patterns Python's re rejects) and replace them
+    with the no-op literal /x/ so the page can still render.
+
+    This is the server-side fix for:
+        SyntaxError: Invalid regular expression: missing )
+    which Kimi K2.5 occasionally generates in its output.
+    """
+    import re as _re
+
+    script_block_re = _re.compile(
+        r'(<script(?:\s[^>]*)?>)(.*?)(</script>)',
+        _re.DOTALL | _re.IGNORECASE,
+    )
+    # Heuristic JS regex literal: /pattern/flags
+    # Anchored so we don't match division operators (e.g. "a / b / c").
+    # We require the character before "/" to be an operator-like token.
+    js_regex_re = _re.compile(
+        r'(?<=[=(\[!&|?:,;{}\s])(/)((?:[^/\\\n\r]|\\.){1,500}?)(/[gimsuy]{0,6})',
+    )
+
+    def _fix_script(sm):
+        open_tag, body, close_tag = sm.group(1), sm.group(2), sm.group(3)
+
+        def _check(rm):
+            slash1, pattern, slash2 = rm.group(1), rm.group(2), rm.group(3)
+            # Count unescaped ( vs ) to catch the "missing )" class of errors.
+            depth = 0
+            i = 0
+            while i < len(pattern):
+                ch = pattern[i]
+                if ch == '\\':
+                    i += 2
+                    continue
+                if ch == '(':
+                    depth += 1
+                elif ch == ')':
+                    depth -= 1
+                i += 1
+            if depth != 0:
+                logger.debug('[nebulux] Stripped broken JS regex (depth=%d): /%s/', depth, pattern[:60])
+                return '/x/'
+            # Also let Python's re engine catch other broken patterns.
+            try:
+                _re.compile(pattern)
+            except _re.error:
+                logger.debug('[nebulux] Stripped broken JS regex (re.error): /%s/', pattern[:60])
+                return '/x/'
+            return slash1 + pattern + slash2
+
+        return open_tag + js_regex_re.sub(_check, body) + close_tag
+
+    return script_block_re.sub(_fix_script, html)
+
+
 def _clean_html(code: str) -> str:
     """Remove accidental markdown fences from HTML output."""
     import re
@@ -1851,6 +1908,8 @@ def _clean_html(code: str) -> str:
     # Strip base64 data URIs — these are huge inline blobs that crash the preview
     text = re.sub(r'src="data:[^"]{200,}"', 'src="/api/image/?q=abstract&w=800&h=600"', text)
     text = re.sub(r"src='data:[^']{200,}'", "src='/api/image/?q=abstract&w=800&h=600'", text)
+    # Strip broken JS regex literals that would cause SyntaxError in the iframe
+    text = _sanitize_js_regexes(text)
     # Strip leading prose before a code fence
     fence_match = re.search(r"```(?:html)?\n", text)
     if fence_match:
