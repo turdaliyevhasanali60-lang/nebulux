@@ -383,7 +383,10 @@
       _scrollDown();
     }
     function doneThinking() {
-      if (!_container || _isDone) return;
+      if (!_container) return;
+      // If no thinking content was ever streamed, just remove the empty bubble
+      if (!_thinkTextEl && !_isDone) { reset(); return; }
+      if (_isDone) return;
       _isDone = true;
       cancelAnimationFrame(_timerRaf);
       _closeCodePanel();
@@ -1798,8 +1801,7 @@ finishCanvasGeneration(['index']);
         let buffer = '', fullCode = '', finalId = null, finalTokens = 0;
         let finalPages = null, finalNavigation = null;
 
-        // Show the thinking widget immediately — bubble appears before first byte
-        AIThinkChat.show();
+        // Widget appears only when thinking_start is received from server
 
         while (true) {
           const { done, value } = await reader.read();
@@ -2564,8 +2566,6 @@ finishCanvasGeneration(['index']);
 
       // ── INSTANT ACKNOWLEDGMENT ──────────────────────────────────────────────
       // Show the AI thinking widget immediately so the user never sees silence.
-      AIThinkChat.show();
-      AIThinkChat.addPhase('analyzing', 'Reading your prompt…');
 
       // Hide the device frame immediately so the user never sees a blank
       // white rectangle — GenStage covers the canvas during generation.
@@ -3416,8 +3416,6 @@ finishCanvasGeneration(['index']);
       if (el.deviceFrame) el.deviceFrame.style.visibility = 'hidden';
       GenStage.reset();
       AIThinkChat.reset();
-      AIThinkChat.show();
-      AIThinkChat.addPhase('analyzing', 'Reading your prompt…');
       GenStage.show([newPage.name], { title: 'Creating page' });
       GenStage.setWriting(newPage.name);
 
