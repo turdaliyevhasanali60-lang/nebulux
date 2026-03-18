@@ -247,10 +247,14 @@ def lemonsqueezy_webhook_view(request):
         _handle_order_created(event)
     elif event_type == "subscription_created":
         _handle_subscription_created(event)
+    elif event_type == "subscription_payment_success":
+        _handle_subscription_renewal(event)
     elif event_type == "subscription_cancelled":
         _handle_subscription_cancelled(event)
     elif event_type == "subscription_updated":
         _handle_subscription_updated(event)
+    else:
+        logger.info("Unhandled webhook event: %s", event_type)
 
     return HttpResponse("OK", status=200)
 
@@ -355,6 +359,52 @@ def _handle_subscription_created(event):
             logger.info("✅ SUBSCRIPTION CREDITS: %d → %s (sub: %s, plan: %s)", credits_to_add, user.email, sub_id, new_plan)
     except Exception as exc:
         error_logger.error("SUBSCRIPTION WEBHOOK ERROR: %s", str(exc))
+
+
+def _handle_subscription_renewal(event):
+    """Handles monthly subscription renewals — adds credits on each billing cycle."""
+    data        = event.get("data", {})
+    attrs       = data.get("attributes", {})
+    custom      = event.get("meta", {}).get("custom_data", {})
+    user_id     = custom.get("user_id")
+    sub_id      = str(attrs.get("subscription_id", data.get("id", "")))
+
+    if not user_id:
+        # Try to find user via subscription record
+        try:
+            sub = Subscription.objects.get(ls_subscription_id=sub_id)
+            user = sub.user
+        except Subscription.DoesNotExist:
+            error_logger.error("RENEWAL: no user_id and no subscription found sub_id=%s", sub_id)
+            return
+    else:
+        try:
+            user = User.objects.get(pk=user_id)
+        except User.DoesNotExist:
+            error_logger.error("RENEWAL: user not found user_id=%s", user_id)
+            return
+
+    # Determine plan from subscription record
+    try:
+        sub = Subscription.objects.get(user=user)
+        product_key = "pro_monthly" if user.plan == User.PLAN_PRO else "standard_monthly"
+    except Subscription.DoesNotExist:
+        product_key = "standard_monthly"
+
+    credits_to_add = getattr(settings, "LS_CREDIT_MAP", {}).get(product_key, 0)
+    if credits_to_add <= 0:
+        error_logger.error("RENEWAL: could not determine credits for %s", product_key)
+        return
+
+    order_id = f"renewal_{sub_id}_{attrs.get('created_at', '')}"
+    _persist_payment_and_grant_credits(
+        user=user,
+        order_id=order_id,
+        product_key=product_key,
+        attrs=attrs,
+        credits_to_add=credits_to_add,
+    )
+    logger.info("✅ RENEWAL CREDITS: %d → %s", credits_to_add, user.email)
 
 
 def _handle_subscription_cancelled(event):

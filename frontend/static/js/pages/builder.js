@@ -304,7 +304,7 @@
       `;
 
       const bodyWrap = document.createElement('div');
-      bodyWrap.className = 'atw-code-body atw-code-body--open';
+      bodyWrap.className = 'atw-code-body';
       const pre = document.createElement('pre');
       pre.className = 'atw-code-pre';
       bodyWrap.appendChild(pre);
@@ -2009,11 +2009,14 @@ finishCanvasGeneration(['index']);
       .atw-body { margin-top: 8px; }
       .atw-body--hidden { display: none; }
       .atw-think-text {
-        margin: 0; padding: 0;
-        font-size: 11.5px; line-height: 1.65;
-        color: rgba(200,205,255,.55);
+        margin: 6px 0 0; padding: 10px 12px;
+        font-size: 12.5px; line-height: 1.75;
+        color: rgba(220,225,255,.82);
         white-space: pre-wrap; word-break: break-word;
-        max-height: 180px; overflow-y: auto;
+        max-height: 260px; overflow-y: auto;
+        background: rgba(255,255,255,.04);
+        border-left: 2px solid rgba(247,148,29,.5);
+        border-radius: 0 6px 6px 0;
       }
       .atw-action {
         display: flex; align-items: center; gap: 7px;
@@ -2032,10 +2035,12 @@ finishCanvasGeneration(['index']);
       }
       .atw-code-hdr {
         display: flex; align-items: center; gap: 6px;
-        font-size: 11px; color: rgba(200,205,255,.4);
+        font-size: 11px; color: rgba(200,205,255,.5);
         background: none; border: none; cursor: pointer;
-        font-family: inherit; padding: 6px 10px; width: 100%; text-align: left;
+        font-family: inherit; padding: 7px 10px; width: 100%; text-align: left;
+        border-top: 1px solid rgba(255,255,255,.05);
       }
+      .atw-code-hdr:hover { color: rgba(200,205,255,.75); background: rgba(255,255,255,.02); }
       .atw-code-dot {
         width: 5px; height: 5px; border-radius: 50%;
         background: #F7941D; flex-shrink: 0; animation: atw-spin 1.4s linear infinite;
@@ -3761,9 +3766,9 @@ finishCanvasGeneration(['index']);
           try {
             return _doSave(true);
           } catch (e2) {
-            console.error('[Nebulux] Save still failed after cleanup:', e2);
-            addMessage('ai', '⚠️ Storage full. Try clearing browser data or removing old projects.');
-            return false;
+            // Local storage full — not a problem, projects are saved to server
+            console.warn('[Nebulux] Local cache full — skipping local save, server save unaffected.');
+            return true;
           }
         }
 

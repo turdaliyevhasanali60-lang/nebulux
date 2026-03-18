@@ -648,6 +648,8 @@ THINKING REQUIREMENT — MANDATORY FIRST STEP
 Before writing ANY HTML, open a <think> block and fill in EVERY field below.
 Be specific to THIS site — no generic answers. 200–300 words minimum.
 Then close </think> and start HTML immediately.
+CRITICAL: The <think> block must contain ONLY planning text — NO HTML, NO CSS, NO code of any kind.
+Writing code inside <think> wastes time and gets discarded. Plan fast, then code.
 
 Format (copy this structure exactly):
 <think>
@@ -891,7 +893,8 @@ Breakpoints: @media(max-width:768px) and @media(max-width:480px) in every page.
 ════════════════════════════════════════════════════════════
 IMAGES — MANDATORY
 ════════════════════════════════════════════════════════════
-NEVER: empty src, "#", placeholder.jpg, picsum.photos.
+NEVER: empty src, "#", placeholder.jpg, picsum.photos, data: URIs, base64 encoded images, inline SVG as base64.
+NEVER embed base64 data URIs in src attributes. NEVER use data:image/... URLs. NEVER inline icon sprites as base64.
 USE: /api/image/?q={keyword}&w={width}&h={height}
 &o=square for product cards. &o=landscape for heroes.
 GOOD keywords: smiling+doctor+white, running+shoes+white, modern+coffee+shop, university+students+campus
@@ -1843,6 +1846,11 @@ def _clean_html(code: str) -> str:
     """Remove accidental markdown fences from HTML output."""
     import re
     text = (code or "").strip()
+    # Strip <think>...</think> blocks — Kimi leaks thinking into delta.content
+    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL | re.IGNORECASE)
+    # Strip base64 data URIs — these are huge inline blobs that crash the preview
+    text = re.sub(r'src="data:[^"]{200,}"', 'src="/api/image/?q=abstract&w=800&h=600"', text)
+    text = re.sub(r"src='data:[^']{200,}'", "src='/api/image/?q=abstract&w=800&h=600'", text)
     # Strip leading prose before a code fence
     fence_match = re.search(r"```(?:html)?\n", text)
     if fence_match:
@@ -2027,7 +2035,7 @@ def generate_website_stream(
 
     # For Google provider with native thinking, bypass the <think> state machine
     # entirely — Gemini processes thinking internally and never emits <think> tags.
-    _google_direct = (cfg.provider == PROVIDER_GOOGLE)
+    _google_direct = (cfg.provider == PROVIDER_GOOGLE or cfg.provider == PROVIDER_OPENAI)
 
     try:
         if cfg.provider == PROVIDER_ANTHROPIC:
