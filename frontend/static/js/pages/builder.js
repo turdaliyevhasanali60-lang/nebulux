@@ -398,6 +398,7 @@
       if (_labelEl) _labelEl.textContent = `Thought for ${secs}s`;
       if (_timerEl) _timerEl.textContent = '';
       _toggle.classList.add('atw-toggle--done');
+      _setOpen(false);
 
     }
 
@@ -3221,10 +3222,20 @@ finishCanvasGeneration(['index']);
         panel.appendChild(hdr);
         panel.appendChild(pre);
         container.appendChild(panel);
-      } else if (part.trim()) {
-        const span = document.createElement('span');
-        span.textContent = part;
-        container.appendChild(span);
+      } else if (part) {
+        // Handle inline backtick code
+        const inlineRe = /(`[^`]+`)/g;
+        const inlineParts = part.split(inlineRe);
+        inlineParts.forEach(ip => {
+          if (ip.startsWith('`') && ip.endsWith('`') && ip.length > 2) {
+            const code = document.createElement('code');
+            code.className = 'msg-inline-code';
+            code.textContent = ip.slice(1, -1);
+            container.appendChild(code);
+          } else if (ip) {
+            container.appendChild(document.createTextNode(ip));
+          }
+        });
       }
     });
   }

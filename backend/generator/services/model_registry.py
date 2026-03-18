@@ -245,7 +245,7 @@ MODEL_REGISTRY: Dict[str, ModelConfig] = {
 
     "gemini-2.5-flash": ModelConfig(
         name="Gemini 2.5 Flash",
-	model_id="gemini-2.5-flash",
+	model_id="gemini-2.5-flash-preview-04-17",
         provider=PROVIDER_GOOGLE,
         api_key_setting="GOOGLE_AI_API_KEY",
         max_output_tokens=32000,

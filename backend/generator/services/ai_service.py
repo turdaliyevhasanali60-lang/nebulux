@@ -1726,7 +1726,7 @@ def _call_google(
         gen_config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=1024)
     else:
         # Flash: 0 budget — native thinking disabled, rely on <think> prompt instructions
-        gen_config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
+        gen_config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=8000)
     gen_config = types.GenerateContentConfig(**gen_config_kwargs)
     # Build contents
     if isinstance(user_content, list):
@@ -2138,7 +2138,6 @@ def generate_website_stream(
             if chunk:
                 html_parts.append(chunk)
                 yield {"chunk": chunk}
-        logger.warning("GEMINI html_parts count=%d total_chars=%d", len(html_parts), sum(len(x) for x in html_parts))
         full_code = _clean_html("".join(html_parts))
         full_code = _inject_attached_images(full_code, files)
         pages, navigation = _parse_multipage_output(full_code)
