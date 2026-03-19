@@ -1479,6 +1479,31 @@ finishCanvasGeneration(['index']);
     const nbxId = 'nbx_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
     element.setAttribute('data-nbx-id', nbxId);
 
+    // ── Sync nbxId into state.currentCode so DOMParser can find it later ──
+    if (state.currentCode) {
+      try {
+        const parser = new DOMParser();
+        const d = parser.parseFromString(state.currentCode, 'text/html');
+        // Build a reliable selector using id, or tag+classes, or outerHTML match
+        let found = null;
+        if (element.id) {
+          found = d.getElementById(element.id);
+        }
+        if (!found) {
+          // Match by tag + textContent + position
+          const allMatching = Array.from(d.querySelectorAll(tag));
+          const liveText = element.textContent.trim();
+          found = allMatching.find(el => el.textContent.trim() === liveText) || allMatching[0];
+        }
+        if (found) {
+          found.setAttribute('data-nbx-id', nbxId);
+          state.currentCode = '<!DOCTYPE html>\n' + d.documentElement.outerHTML;
+          const page = getCurrentPage();
+          if (page) page.code = state.currentCode;
+        }
+      } catch(e) { console.warn('[nebulux] nbxId sync failed:', e); }
+    }
+
     state.selectedElement = { tag, text, path: tag + id + classes, nbxId };
 
     el.selectionBanner.classList.add('visible');
