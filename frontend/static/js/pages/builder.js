@@ -3914,7 +3914,13 @@ finishCanvasGeneration(['index']);
           const page = getCurrentPage();
           const code = page ? page.code : state.currentCode;
           const pagesPayload = {};
-          state.pages.forEach(p => { if (p.code) pagesPayload[p.name] = p.code; });
+          state.pages.forEach(p => {
+            if (p.code) pagesPayload[p.name] = {
+              code: p.code,
+              history: p.history || [],
+              historyIndex: p.historyIndex !== undefined ? p.historyIndex : -1,
+            };
+          });
           Auth.apiFetch(`${CONFIG.apiBaseUrl}/websites/${state.lastGenerationId}/`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
@@ -4160,14 +4166,17 @@ finishCanvasGeneration(['index']);
             return oa - ob;
           });
 
-          state.pages = sortedSlugs.map((slug, idx) => ({
-            id: 'page_' + Date.now() + '_' + idx,
-            name: slug,
-            code: data.pages[slug] || '',
-            history: [],
-            historyIndex: -1,
-
-          }));
+          state.pages = sortedSlugs.map((slug, idx) => {
+            const entry = data.pages[slug];
+            const isObj = entry && typeof entry === 'object' && entry.code;
+            return {
+              id: 'page_' + Date.now() + '_' + idx,
+              name: slug,
+              code: isObj ? entry.code : (entry || ''),
+              history: isObj ? (entry.history || []) : [],
+              historyIndex: isObj ? (entry.historyIndex !== undefined ? entry.historyIndex : -1) : -1,
+            };
+          });
 
           const indexPage = state.pages.find(p => p.name === 'index') || state.pages[0];
           state.currentPageId = indexPage.id;
@@ -4184,7 +4193,6 @@ finishCanvasGeneration(['index']);
             code: code,
             history: [],
             historyIndex: -1,
-
           }];
           state.currentPageId = pageId;
           state.currentCode = code;
