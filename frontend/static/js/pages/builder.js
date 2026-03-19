@@ -4233,10 +4233,7 @@ finishCanvasGeneration(['index']);
         }
         el.projectTitle.textContent = state.projectName;
 
-        // Save to localStorage so next visit is instant
-        Project.save();
-
-        // Restore chat AFTER Project.save so it doesn't get overwritten
+        // Restore chat directly into memory from server data
         const chatData = (data.pages && data.pages['_chat']) || (data.pages_json && data.pages_json['_chat']);
         if (chatData && Array.isArray(chatData) && chatData.length > 0) {
           try {
