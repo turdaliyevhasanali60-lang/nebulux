@@ -3229,7 +3229,6 @@ finishCanvasGeneration(['index']);
       } catch (e) {
         console.warn('[Nebulux] Chat save error:', e);
       }
-      this._flushToServer();
     },
 
     _flushToServer() {
@@ -3949,6 +3948,10 @@ finishCanvasGeneration(['index']);
               historyIndex: p.historyIndex !== undefined ? p.historyIndex : -1,
             };
           });
+          // Include chat messages in the same PATCH
+          pagesPayload['_chat'] = _chatMessages
+            .filter(m => (!m.text || !m.text.startsWith('Sign in to start')) && m.text !== '[attachment]')
+            .map(m => ({ role: m.role, text: m.text, ts: m.ts }));
           Auth.apiFetch(`${CONFIG.apiBaseUrl}/websites/${state.lastGenerationId}/`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
