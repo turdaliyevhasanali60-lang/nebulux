@@ -1103,7 +1103,7 @@ finishCanvasGeneration(['index']);
         commitCurrentCode(newCode);
         // Update current page in multi-page state
         const slug = getCurrentPage()?.name || 'index';
-        const pageObj = state.pages.find(p => p.slug === slug);
+        const pageObj = state.pages.find(p => p.name === slug);
         if (pageObj) pageObj.code = newCode;
         Project.save();
         addToHistory(newCode, 'Edited');
@@ -4290,11 +4290,10 @@ finishCanvasGeneration(['index']);
         const found = d.querySelector('[data-nbx-id="' + state.selectedElement.nbxId + '"]');
         if (found) {
           found.innerHTML = target.innerHTML;
-          const newCode = '<!DOCTYPE html>
-' + d.documentElement.outerHTML;
+          const newCode = '<!DOCTYPE html>\n' + d.documentElement.outerHTML;
           commitCurrentCode(newCode);
           const slug = getCurrentPage()?.name || 'index';
-          const pageObj = state.pages.find(p => p.slug === slug);
+          const pageObj = state.pages.find(p => p.name === slug);
           if (pageObj) pageObj.code = newCode;
           Project.save();
           addToHistory(newCode, 'Text edited');
@@ -4331,11 +4330,10 @@ finishCanvasGeneration(['index']);
           const found = d.querySelector('[data-nbx-id="' + state.selectedElement.nbxId + '"]');
           if (found) {
             found.setAttribute('src', dataUrl);
-            const newCode = '<!DOCTYPE html>
-' + d.documentElement.outerHTML;
+            const newCode = '<!DOCTYPE html>\n' + d.documentElement.outerHTML;
             commitCurrentCode(newCode);
             const slug = getCurrentPage()?.name || 'index';
-            const pageObj = state.pages.find(p => p.slug === slug);
+            const pageObj = state.pages.find(p => p.name === slug);
             if (pageObj) pageObj.code = newCode;
             Project.save();
             addToHistory(newCode, 'Image replaced');
