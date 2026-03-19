@@ -4191,7 +4191,7 @@ finishCanvasGeneration(['index']);
         // Multi-page API response
         if (data.is_multipage && data.pages && typeof data.pages === 'object' && Object.keys(data.pages).length > 0) {
           const navOrder = data.navigation || {};
-          const sortedSlugs = Object.keys(data.pages).sort((a, b) => {
+          const sortedSlugs = Object.keys(data.pages).filter(s => !s.startsWith('_')).sort((a, b) => {
             const oa = navOrder[a]?.order ?? 999;
             const ob = navOrder[b]?.order ?? 999;
             return oa - ob;
@@ -4212,12 +4212,6 @@ finishCanvasGeneration(['index']);
           const indexPage = state.pages.find(p => p.name === 'index') || state.pages[0];
           state.currentPageId = indexPage.id;
           state.currentCode = indexPage.code;
-          // Restore chat from server
-          if (data.pages && data.pages['_chat'] && Array.isArray(data.pages['_chat'])) {
-            try {
-              localStorage.setItem('nebulux_chat_' + _userNamespace() + '_' + state.projectId, JSON.stringify(data.pages['_chat']));
-            } catch(_) {}
-          }
         } else {
           // Single-page fallback — check pages_json first (new format with history)
           const pagesJson = data.pages_json;
@@ -4236,18 +4230,19 @@ finishCanvasGeneration(['index']);
           }];
           state.currentPageId = pageId;
           state.currentCode = code;
-          // Restore chat from server (single-page)
-          const chatEntry = pagesJson && pagesJson['_chat'];
-          if (chatEntry && Array.isArray(chatEntry)) {
-            try {
-              localStorage.setItem('nebulux_chat_' + _userNamespace() + '_' + state.projectId, JSON.stringify(chatEntry));
-            } catch(_) {}
-          }
         }
         el.projectTitle.textContent = state.projectName;
 
         // Save to localStorage so next visit is instant
         Project.save();
+
+        // Restore chat AFTER Project.save so it doesn't get overwritten
+        const chatData = (data.pages && data.pages['_chat']) || (data.pages_json && data.pages_json['_chat']);
+        if (chatData && Array.isArray(chatData) && chatData.length > 0) {
+          try {
+            localStorage.setItem('nebulux_chat_' + _userNamespace() + '_' + state.projectId, JSON.stringify(chatData));
+          } catch(_) {}
+        }
 
         log('project_loaded', { projectId: state.projectId, source: 'api', pages: 1 });
         return true;
