@@ -567,6 +567,34 @@ def chat_view(request):
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def upload_image(request):
+    """Upload a user image and return a permanent URL."""
+    import uuid, os
+    from django.core.files.storage import default_storage
+    from django.core.files.base import ContentFile
+
+    file = request.FILES.get("image")
+    if not file:
+        return Response({"error": "No image provided."}, status=400)
+
+    # Validate type
+    allowed = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/svg+xml"]
+    if file.content_type not in allowed:
+        return Response({"error": "Invalid file type."}, status=400)
+
+    # Max 10MB
+    if file.size > 10 * 1024 * 1024:
+        return Response({"error": "File too large (max 10MB)."}, status=400)
+
+    ext = os.path.splitext(file.name)[1].lower() or ".jpg"
+    filename = f"user_uploads/{request.user.id}/{uuid.uuid4().hex}{ext}"
+    default_storage.save(filename, ContentFile(file.read()))
+    url = request.build_absolute_uri(settings.MEDIA_URL + filename)
+    return Response({"url": url})
+
+
 def pexels_image(request):
     import requests as http_requests
     from django.core.cache import cache

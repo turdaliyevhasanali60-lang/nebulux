@@ -20,6 +20,7 @@ urlpatterns = [
 
     # ── Ops
     path("image/", views.pexels_image, name="pexels-image"),
+    path("upload-image/", views.upload_image, name="upload-image"),
     path("health/", views.health_check, name="health-check"),
     path("stats/",  views.api_stats,    name="api-stats"),
 ]

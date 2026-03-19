@@ -4353,23 +4353,44 @@ finishCanvasGeneration(['index']);
       const file = input.files[0];
       if (!file) { input.remove(); return; }
       const reader = new FileReader();
-      reader.onload = (ev) => {
+      reader.onload = async (ev) => {
         const dataUrl = ev.target.result;
-        target.src = dataUrl;
-        if (!state.currentCode) { input.remove(); return; }
+        target.src = dataUrl; // show immediately
+        input.remove();
+
+        // Upload to server for a permanent URL
+        let finalSrc = dataUrl;
+        try {
+          const formData = new FormData();
+          formData.append('image', file);
+          const res = await Auth.apiFetch(CONFIG.apiBaseUrl + '/upload-image/', {
+            method: 'POST',
+            body: formData,
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.url) {
+              finalSrc = data.url;
+              target.src = finalSrc;
+            }
+          }
+        } catch(uploadErr) {
+          console.warn('[nebulux] image upload failed, using base64:', uploadErr);
+        }
+
+        if (!state.currentCode) return;
         try {
           const parser = new DOMParser();
           const d = parser.parseFromString(state.currentCode, 'text/html');
           const found = d.querySelector('[data-nbx-id="' + state.selectedElement.nbxId + '"]');
           if (found) {
-            found.setAttribute('src', dataUrl);
+            found.setAttribute('src', finalSrc);
             const newCode = '<!DOCTYPE html>\n' + d.documentElement.outerHTML;
             commitCurrentCode(newCode);
             Project.save();
             addToHistory(newCode, 'Image replaced');
           }
         } catch(err) { console.warn('[nebulux] image replace failed:', err); }
-        input.remove();
       };
       reader.readAsDataURL(file);
     });
