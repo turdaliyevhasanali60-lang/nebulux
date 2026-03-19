@@ -4292,9 +4292,6 @@ finishCanvasGeneration(['index']);
           found.innerHTML = target.innerHTML;
           const newCode = '<!DOCTYPE html>\n' + d.documentElement.outerHTML;
           commitCurrentCode(newCode);
-          const slug = getCurrentPage()?.name || 'index';
-          const pageObj = state.pages.find(p => p.name === slug);
-          if (pageObj) pageObj.code = newCode;
           Project.save();
           addToHistory(newCode, 'Text edited');
         }
@@ -4332,9 +4329,6 @@ finishCanvasGeneration(['index']);
             found.setAttribute('src', dataUrl);
             const newCode = '<!DOCTYPE html>\n' + d.documentElement.outerHTML;
             commitCurrentCode(newCode);
-            const slug = getCurrentPage()?.name || 'index';
-            const pageObj = state.pages.find(p => p.name === slug);
-            if (pageObj) pageObj.code = newCode;
             Project.save();
             addToHistory(newCode, 'Image replaced');
           }
