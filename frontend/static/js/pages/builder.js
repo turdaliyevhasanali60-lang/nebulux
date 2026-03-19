@@ -123,6 +123,7 @@
     projectTitle: $('#projectTitle'),
     previewBtn: $('#previewBtn'),
     exportBtn: $('#exportBtn'),
+    publishBtn: $('#publishBtn'),
     saveBtn: $('#saveBtn'),
     canvasArea: $('#canvasArea'),
     loadingOverlay: $('#loadingOverlay'),
@@ -1089,26 +1090,60 @@ finishCanvasGeneration(['index']);
     if (e.data.type === 'nebulux:edit-text' || e.data.type === 'nebulux:edit-image') {
       const { selector, text, src: imgSrc } = e.data;
       if (!state.currentCode || !selector) return;
-      try {
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(state.currentCode, 'text/html');
-        const el = doc.querySelector(selector);
-        if (!el) return;
-        if (e.data.type === 'nebulux:edit-text') {
-          el.innerHTML = text;
-        } else {
-          el.setAttribute('src', imgSrc);
+
+      const _applyEdit = (finalSrc) => {
+        try {
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(state.currentCode, 'text/html');
+          const el = doc.querySelector(selector);
+          if (!el) return;
+          if (e.data.type === 'nebulux:edit-text') {
+            el.innerHTML = text;
+          } else {
+            el.setAttribute('src', finalSrc || imgSrc);
+          }
+          const newCode = '<!DOCTYPE html>\n' + doc.documentElement.outerHTML;
+          commitCurrentCode(newCode);
+          const slug = getCurrentPage()?.name || 'index';
+          const pageObj = state.pages.find(p => p.name === slug);
+          if (pageObj) pageObj.code = newCode;
+          Project.save();
+          addToHistory(newCode, 'Edited');
+        } catch(err) {
+          console.warn('[nebulux] inline edit failed:', err);
         }
-        const newCode = '<!DOCTYPE html>\n' + doc.documentElement.outerHTML;
-        commitCurrentCode(newCode);
-        // Update current page in multi-page state
-        const slug = getCurrentPage()?.name || 'index';
-        const pageObj = state.pages.find(p => p.name === slug);
-        if (pageObj) pageObj.code = newCode;
-        Project.save();
-        addToHistory(newCode, 'Edited');
-      } catch(err) {
-        console.warn('[nebulux] inline edit failed:', err);
+      };
+
+      // For image edits: upload base64 to R2 first, then save with permanent URL
+      if (e.data.type === 'nebulux:edit-image' && imgSrc && imgSrc.startsWith('data:')) {
+        (async () => {
+          let finalSrc = imgSrc;
+          try {
+            const mime = imgSrc.split(';')[0].split(':')[1] || 'image/png';
+            const base64 = imgSrc.split(',')[1];
+            const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+            const blob = new Blob([bytes], { type: mime });
+            const formData = new FormData();
+            formData.append('image', blob, 'inline-edit.png');
+            // Must NOT set Content-Type here — browser sets multipart/form-data + boundary automatically
+            const _uploadToken = window.Auth && Auth.getAccessToken ? Auth.getAccessToken() : null;
+            const _uploadHeaders = _uploadToken ? { 'Authorization': 'Bearer ' + _uploadToken } : {};
+            const res = await fetch(CONFIG.apiBaseUrl + '/upload-image/', {
+              method: 'POST',
+              headers: _uploadHeaders,
+              body: formData,
+            });
+            if (res.ok) {
+              const data = await res.json();
+              if (data.url) finalSrc = data.url;
+            }
+          } catch(uploadErr) {
+            console.warn('[nebulux] inline image upload failed, using base64:', uploadErr);
+          }
+          _applyEdit(finalSrc);
+        })();
+      } else {
+        _applyEdit(imgSrc);
       }
     }
   });
@@ -2619,6 +2654,7 @@ finishCanvasGeneration(['index']);
       _renderTextWithCode(contentEl, reply);
       Chat.push('ai', reply);
       Chat.saveToStorage();
+      Chat._flushToServer();
     } catch {
       const contentEl = msgEl.querySelector('.message-content') || msgEl;
       contentEl.textContent = 'How can I help with your site?';
@@ -2916,6 +2952,7 @@ finishCanvasGeneration(['index']);
         // Remove the status message and show final result
         if (statusMsg) statusMsg.remove();
         addMessage('ai', `✓ Changes applied to ${pageName}`);
+        Project.save(); // persist code + chat to localStorage + server
         log('modify_ok', { tokens, editMode });
         Credits.refresh();
         _setGenerating(false);
@@ -5571,6 +5608,9 @@ finishCanvasGeneration(['index']);
     setTimeout(_runInit, 8000);
   })();
 
+  // Expose state to publish panel (which lives outside this closure)
+  window._nebuluxGetGenId = function() { return state.lastGenerationId || null; };
+
 })();
 
 /* ── Sidebar pull-tab visibility ── */
@@ -5601,3 +5641,194 @@ finishCanvasGeneration(['index']);
     countEl.textContent = n || '–';
   }).observe(listEl, { childList: true, subtree: false });
 })();
+
+/* ============================================================
+   PUBLISH PANEL
+============================================================ */
+
+(function() {
+  const publishBtn        = document.getElementById('publishBtn');
+  const publishPanel      = document.getElementById('publishPanel');
+  const publishOverlay    = document.getElementById('publishPanelOverlay');
+  const publishPanelClose = document.getElementById('publishPanelClose');
+  const publishedState    = document.getElementById('publishedState');
+  const unpublishedState  = document.getElementById('unpublishedState');
+  const changesBanner     = document.getElementById('publishChangesBanner');
+  const republishBtn      = document.getElementById('republishBtn');
+  const publishLiveUrl    = document.getElementById('publishLiveUrl');
+  const publishCopyBtn    = document.getElementById('publishCopyBtn');
+  const unpublishBtn      = document.getElementById('unpublishBtn');
+  const subdomainInput    = document.getElementById('publishSubdomainInput');
+  const subdomainStatus   = document.getElementById('subdomainStatus');
+  const publishGoBtn      = document.getElementById('publishGoBtn');
+
+  if (!publishBtn) return;
+
+  let _checkTimer = null;
+  let _currentStatus = null; // null | {is_published, subdomain, url, has_unpublished_changes}
+
+  function openPanel() {
+    publishPanel.classList.add('open');
+    publishOverlay.classList.add('open');
+    _loadStatus();
+  }
+
+  function closePanel() {
+    publishPanel.classList.remove('open');
+    publishOverlay.classList.remove('open');
+  }
+
+  publishBtn.addEventListener('click', openPanel);
+  publishPanelClose.addEventListener('click', closePanel);
+  publishOverlay.addEventListener('click', closePanel);
+
+  async function _apiFetch(url, opts={}) {
+    if (window.Auth && typeof Auth.apiFetch === 'function') {
+      return Auth.apiFetch(url, { headers: { 'Content-Type': 'application/json' }, ...opts });
+    }
+    return fetch(url, { headers: { 'Content-Type': 'application/json' }, ...opts });
+  }
+
+  async function _loadStatus() {
+    const genId = window._nebuluxGetGenId?.();
+    if (!genId) {
+      _showUnpublished();
+      return;
+    }
+    try {
+      const res = await _apiFetch(`/api/publishing/status/${genId}/`);
+      const data = await res.json();
+      _currentStatus = data;
+      if (data.is_published) {
+        _showPublished(data);
+      } else {
+        _showUnpublished();
+      }
+    } catch(e) {
+      _showUnpublished();
+    }
+  }
+
+  function _showPublished(data) {
+    publishedState.style.display = 'block';
+    unpublishedState.style.display = 'none';
+    publishLiveUrl.href = data.url;
+    publishLiveUrl.textContent = data.url.replace('https://', '');
+    changesBanner.style.display = data.has_unpublished_changes ? 'flex' : 'none';
+  }
+
+  function _showUnpublished() {
+    publishedState.style.display = 'none';
+    unpublishedState.style.display = 'block';
+    changesBanner.style.display = 'none';
+  }
+
+  // Subdomain availability check with debounce
+  subdomainInput.addEventListener('input', () => {
+    const val = subdomainInput.value.trim().toLowerCase();
+    subdomainStatus.textContent = '';
+    subdomainStatus.className = 'publish-subdomain-status';
+    publishGoBtn.disabled = true;
+    clearTimeout(_checkTimer);
+    if (!val) return;
+    subdomainStatus.textContent = 'Checking…';
+    _checkTimer = setTimeout(() => _checkSubdomain(val), 500);
+  });
+
+  async function _checkSubdomain(slug) {
+    try {
+      const res = await _apiFetch(`/api/publishing/check/?subdomain=${encodeURIComponent(slug)}`);
+      const data = await res.json();
+      if (data.available) {
+        subdomainStatus.textContent = '✓ Available';
+        subdomainStatus.className = 'publish-subdomain-status ok';
+        publishGoBtn.disabled = false;
+      } else {
+        subdomainStatus.textContent = data.error || 'Not available';
+        subdomainStatus.className = 'publish-subdomain-status err';
+        publishGoBtn.disabled = true;
+      }
+    } catch(e) {
+      subdomainStatus.textContent = 'Could not check';
+      subdomainStatus.className = 'publish-subdomain-status err';
+    }
+  }
+
+  // Publish
+  publishGoBtn.addEventListener('click', async () => {
+    const subdomain = subdomainInput.value.trim().toLowerCase();
+    const genId = window._nebuluxGetGenId?.();
+    if (!subdomain || !genId) return;
+    publishGoBtn.disabled = true;
+    publishGoBtn.textContent = 'Publishing…';
+    try {
+      const res = await _apiFetch('/api/publishing/publish/', {
+        method: 'POST',
+        body: JSON.stringify({ subdomain, generation_id: genId }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        _currentStatus = { is_published: true, subdomain: data.subdomain, url: data.url, has_unpublished_changes: false };
+        _showPublished(_currentStatus);
+      } else {
+        subdomainStatus.textContent = data.error || 'Publish failed';
+        subdomainStatus.className = 'publish-subdomain-status err';
+        publishGoBtn.disabled = false;
+        publishGoBtn.innerHTML = '<svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2l9 7-9 7-9-7 9-7z"/><path d="M3 17l9 5 9-5"/></svg> Publish site';
+      }
+    } catch(e) {
+      publishGoBtn.disabled = false;
+      publishGoBtn.innerHTML = '<svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2l9 7-9 7-9-7 9-7z"/><path d="M3 17l9 5 9-5"/></svg> Publish site';
+    }
+  });
+
+  // Republish
+  republishBtn.addEventListener('click', async () => {
+    const genId = window._nebuluxGetGenId?.();
+    if (!genId) return;
+    republishBtn.textContent = 'Publishing…';
+    republishBtn.disabled = true;
+    try {
+      const res = await _apiFetch('/api/publishing/republish/', {
+        method: 'POST',
+        body: JSON.stringify({ generation_id: genId }),
+      });
+      if (res.ok) {
+        changesBanner.style.display = 'none';
+        if (_currentStatus) _currentStatus.has_unpublished_changes = false;
+      }
+    } finally {
+      republishBtn.textContent = 'Publish update';
+      republishBtn.disabled = false;
+    }
+  });
+
+  // Copy link
+  publishCopyBtn.addEventListener('click', () => {
+    if (!_currentStatus?.url) return;
+    navigator.clipboard.writeText(_currentStatus.url).then(() => {
+      const orig = publishCopyBtn.innerHTML;
+      publishCopyBtn.textContent = 'Copied!';
+      setTimeout(() => { publishCopyBtn.innerHTML = orig; }, 2000);
+    });
+  });
+
+  // Unpublish
+  unpublishBtn.addEventListener('click', async () => {
+    const genId = window._nebuluxGetGenId?.();
+    if (!genId) return;
+    if (!confirm('Unpublish this site? The URL will stop working.')) return;
+    unpublishBtn.textContent = 'Unpublishing…';
+    try {
+      const res = await _apiFetch(`/api/publishing/unpublish/${genId}/`, { method: 'DELETE' });
+      if (res.ok) {
+        _currentStatus = null;
+        _showUnpublished();
+      }
+    } finally {
+      unpublishBtn.textContent = 'Unpublish';
+    }
+  });
+
+})();
+

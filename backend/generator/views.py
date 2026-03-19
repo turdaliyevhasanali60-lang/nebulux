@@ -14,6 +14,8 @@ from __future__ import annotations  # FIX: enables str|None union syntax on Pyth
 import json
 import logging
 from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import parser_classes
+from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.response import Response
@@ -124,6 +126,101 @@ def _extract_files(request_data) -> list:
 
     return validated
 
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Base64 → R2 extractor
+#  Scans HTML for data: image URIs, uploads each to R2 as WebP, replaces inline.
+# ─────────────────────────────────────────────────────────────────────────────
+def _inline_images_to_r2(html: str) -> str:
+    """
+    Find every src="data:image/..." in html, convert to WebP, upload to R2,
+    return html with permanent URLs.  Falls back silently on any error.
+    """
+    import re, io, uuid, base64
+    from django.conf import settings as _s
+
+    if not getattr(_s, '_R2_CONFIGURED', False) or not getattr(_s, 'R2_PUBLIC_URL', ''):
+        return html  # R2 not configured — leave as-is
+
+    # Match both quoted and unquoted data URIs inside src= attributes
+    pattern = re.compile(
+        r'src=(?:["\'])??(data:image/([a-zA-Z+]+);base64,([A-Za-z0-9+/=]+))(?:["\'])??',
+        re.IGNORECASE,
+    )
+
+    matches = list(pattern.finditer(html))
+    if not matches:
+        return html
+
+    try:
+        import boto3
+        from botocore.config import Config as BotoConfig
+        from PIL import Image as PilImage
+
+        s3 = boto3.client(
+            "s3",
+            endpoint_url=_s.AWS_S3_ENDPOINT_URL,
+            aws_access_key_id=_s.AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=_s.AWS_SECRET_ACCESS_KEY,
+            config=BotoConfig(signature_version="s3v4"),
+            region_name="auto",
+        )
+    except Exception as exc:
+        logger.warning("_inline_images_to_r2: could not init S3 client: %s", exc)
+        return html
+
+    replacements = {}
+    for match in matches:
+        full_src = match.group(1)   # data:image/png;base64,...
+        img_format = match.group(2) # png / jpeg / webp / gif / svg+xml
+        b64_data   = match.group(3)
+
+        if full_src in replacements:
+            continue  # already processed this exact data URI
+
+        # Skip SVG — not worth converting, and PIL can't handle it
+        if 'svg' in img_format.lower():
+            continue
+
+        try:
+            raw = base64.b64decode(b64_data)
+            img = PilImage.open(io.BytesIO(raw))
+
+            if img.mode in ("RGBA", "LA", "P"):
+                img = img.convert("RGBA")
+            else:
+                img = img.convert("RGB")
+
+            # Cap to 2000px
+            MAX_DIM = 2000
+            if max(img.width, img.height) > MAX_DIM:
+                img.thumbnail((MAX_DIM, MAX_DIM), PilImage.LANCZOS)
+
+            buf = io.BytesIO()
+            img.save(buf, format="WEBP", quality=82, method=4)
+            buf.seek(0)
+
+            key = f"generated/{uuid.uuid4().hex}.webp"
+            s3.put_object(
+                Bucket=_s.R2_BUCKET_NAME,
+                Key=key,
+                Body=buf.read(),
+                ContentType="image/webp",
+            )
+            public_url = _s.R2_PUBLIC_URL.rstrip("/") + "/" + key
+            replacements[full_src] = public_url
+            logger.info("_inline_images_to_r2: uploaded %s → %s", key, public_url)
+
+        except Exception as exc:
+            logger.warning("_inline_images_to_r2: skipping image (%s): %s", img_format, exc)
+            continue
+
+    for old_src, new_url in replacements.items():
+        html = html.replace(old_src, new_url)
+
+    logger.info("_inline_images_to_r2: replaced %d base64 image(s)", len(replacements))
+    return html
 
 # ─────────────────────────────────────────────────────────────────
 #  Step 1 — Spec extraction
@@ -252,7 +349,7 @@ def generate_website_view(request):
             for item in generate_website_stream(spec, original_prompt=prompt, files=files, single_page=single_page, model_override=_model_override):
                 if item.get("done"):
                     # Stream finished — save to DB and send final chunk with id
-                    html_code   = item["full_code"]
+                    html_code   = _inline_images_to_r2(item["full_code"])
                     tokens_used = item["tokens_used"]
                     pages_data  = item.get("pages") or {}
                     nav_data    = item.get("navigation") or {}
@@ -393,6 +490,7 @@ def modify_website_view(request):
 
     _reconcile_credits(user, TU_RESERVATION, tokens)
     _log(ip, "modify_website", tokens, True, None, request)
+    html_code = _inline_images_to_r2(html_code)
     return Response({"code": html_code, "tokens_used": tokens})
 
 
@@ -440,14 +538,27 @@ def get_generation(request, generation_id):
             update_fields.append("title")
         code = request.data.get("generated_code")
         if code:
-            generation.generated_code = code
+            generation.generated_code = _inline_images_to_r2(code)
             update_fields.append("generated_code")
         pages = request.data.get("pages_json")
         if pages is not None:
+            # Strip base64 images from each page's code inside pages_json
+            if isinstance(pages, dict):
+                for slug, entry in pages.items():
+                    if isinstance(entry, dict) and entry.get("code"):
+                        entry["code"] = _inline_images_to_r2(entry["code"])
             generation.pages_json = pages
             update_fields.append("pages_json")
         if update_fields:
             generation.save(update_fields=update_fields)
+            # Flag published site as having unpublished changes
+            try:
+                from publishing.models import PublishedSite
+                PublishedSite.objects.filter(generation=generation, is_active=True).update(
+                    has_unpublished_changes=True
+                )
+            except Exception:
+                pass
         return Response({"id": generation.id, "title": generation.title})
 
     return Response(GenerationDetailSerializer(generation).data)
@@ -565,32 +676,84 @@ def chat_view(request):
     except Exception:
         return Response({"reply": "How can I help with your site?"})
 
-@api_view(['GET'])
-@permission_classes([AllowAny])
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
+@parser_classes([MultiPartParser, FormParser])
 def upload_image(request):
-    """Upload a user image and return a permanent URL."""
-    import uuid, os
-    from django.core.files.storage import default_storage
-    from django.core.files.base import ContentFile
+    """
+    Accept any image, convert to WebP, upload to Cloudflare R2,
+    return a permanent public URL.  Falls back to local media if R2
+    is not configured (dev / staging).
+    """
+    import uuid, io
+    from PIL import Image as PilImage
+    from django.conf import settings as django_settings
 
     file = request.FILES.get("image")
     if not file:
         return Response({"error": "No image provided."}, status=400)
 
-    # Validate type
-    allowed = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/svg+xml"]
-    if file.content_type not in allowed:
+    allowed_types = {"image/jpeg", "image/png", "image/webp", "image/gif", "image/svg+xml"}
+    if file.content_type not in allowed_types:
         return Response({"error": "Invalid file type."}, status=400)
 
-    # Max 10MB
     if file.size > 10 * 1024 * 1024:
         return Response({"error": "File too large (max 10MB)."}, status=400)
 
-    ext = os.path.splitext(file.name)[1].lower() or ".jpg"
-    filename = f"user_uploads/{request.user.id}/{uuid.uuid4().hex}{ext}"
-    default_storage.save(filename, ContentFile(file.read()))
+    try:
+        img = PilImage.open(file)
+        # Preserve transparency for PNG/WebP; flatten for JPEG sources
+        if img.mode in ("RGBA", "LA", "P"):
+            img = img.convert("RGBA")
+        else:
+            img = img.convert("RGB")
+
+        # Cap dimensions to 2000px on longest side
+        MAX_DIM = 2000
+        if max(img.width, img.height) > MAX_DIM:
+            img.thumbnail((MAX_DIM, MAX_DIM), PilImage.LANCZOS)
+
+        buf = io.BytesIO()
+        img.save(buf, format="WEBP", quality=82, method=4)
+        buf.seek(0)
+        webp_bytes = buf.read()
+    except Exception as exc:
+        logger.warning("Image conversion failed: %s", exc)
+        return Response({"error": "Could not process image."}, status=400)
+
+    filename = f"user_uploads/{request.user.id}/{uuid.uuid4().hex}.webp"
+
+    # ── R2 upload ──────────────────────────────────────────────────────────
+    r2_public_url = getattr(django_settings, "R2_PUBLIC_URL", "")
+    if getattr(django_settings, "_R2_CONFIGURED", False) and r2_public_url:
+        try:
+            import boto3
+            from botocore.config import Config as BotoConfig
+
+            s3 = boto3.client(
+                "s3",
+                endpoint_url=django_settings.AWS_S3_ENDPOINT_URL,
+                aws_access_key_id=django_settings.AWS_ACCESS_KEY_ID,
+                aws_secret_access_key=django_settings.AWS_SECRET_ACCESS_KEY,
+                config=BotoConfig(signature_version="s3v4"),
+                region_name="auto",
+            )
+            s3.put_object(
+                Bucket=django_settings.R2_BUCKET_NAME,
+                Key=filename,
+                Body=webp_bytes,
+                ContentType="image/webp",
+            )
+            public_url = r2_public_url.rstrip("/") + "/" + filename
+            return Response({"url": public_url})
+        except Exception as exc:
+            logger.error("R2 upload failed: %s", exc)
+            return Response({"error": "Image upload failed."}, status=502)
+
+    # ── Local fallback (dev / staging — R2 not configured) ─────────────────
+    from django.core.files.storage import default_storage
+    from django.core.files.base import ContentFile
+    default_storage.save(filename, ContentFile(webp_bytes))
     url = request.build_absolute_uri(settings.MEDIA_URL + filename)
     return Response({"url": url})
 

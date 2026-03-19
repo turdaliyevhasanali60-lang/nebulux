@@ -132,6 +132,8 @@
     renderError: $('#renderError'),
     elementEditor: $('#elementEditor'),
     editorInput: $('#editorInput'),
+    editorEditText: $('#editorEditText'),
+    editorReplaceImage: $('#editorReplaceImage'),
     editorSubmit: $('#editorSubmit'),
     editorDelete: $('#editorDelete'),
     editorClose: $('#editorClose'),
@@ -218,7 +220,7 @@
       _body.className = 'atw-body';
 
       _toggle.addEventListener('click', () => {
-        _setOpen(_toggle.getAttribute('aria-expanded') !== 'true'); console.log('[atw] toggle clicked, expanded=', _toggle.getAttribute('aria-expanded'));
+        _setOpen(_toggle.getAttribute('aria-expanded') !== 'true');
       });
 
       _container.appendChild(_toggle);
@@ -230,7 +232,7 @@
       _scrollDown();
     }
 
-    function _setOpen(open) { console.log("[atw] _setOpen called, open=", open, "_toggle=", !!_toggle, "_body=", !!_body);
+    function _setOpen(open) {
       if (!_toggle || !_body) return;
       _toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
       _toggle.querySelector('.atw-chevron')?.remove();
@@ -358,7 +360,7 @@
     // ── PUBLIC API ────────────────────────────────────────────────────────────
     function show() { _ensure(); }
 
-    function addPhase(phase, label, text) { _ensure(); _addAction(_PHASE_ACTIONS[phase] || label); }
+    function addPhase(phase, label, text) { }
 
     function addWritingRow(slug) {
       _ensure();
@@ -383,10 +385,12 @@
       _scrollDown();
     }
     function doneThinking() {
-      if (!_container || _isDone) return;
+      if (!_container) return;
+      // If no thinking content was ever streamed, just remove the empty bubble
+      if (!_thinkTextEl && !_isDone) { reset(); return; }
+      if (_isDone) return;
       _isDone = true;
       cancelAnimationFrame(_timerRaf);
-      _closeCodePanel();
 
       const secs = Math.floor((Date.now() - _startTime) / 1000);
 
@@ -406,7 +410,8 @@
       if (_timerRaf) cancelAnimationFrame(_timerRaf);
       if (_typeRaf) cancelAnimationFrame(_typeRaf);
       if (_body) _body.innerHTML = "";
-      if (_container) _container.style.display = "none";
+      if (_container && _container.parentNode) _container.parentNode.removeChild(_container);
+      _container = null; _toggle = null; _body = null; _labelEl = null; _timerEl = null;
       _startTime = 0; _isDone = false; _timerRaf = null;
       _typeQueue = []; _typeRaf = null;
       _thinkTextEl = null;
@@ -1080,6 +1085,32 @@ finishCanvasGeneration(['index']);
       const url = e.data.url || 'unknown';
       console.debug('[nebulux] Navigation blocked in preview:', url);
     }
+
+    if (e.data.type === 'nebulux:edit-text' || e.data.type === 'nebulux:edit-image') {
+      const { selector, text, src: imgSrc } = e.data;
+      if (!state.currentCode || !selector) return;
+      try {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(state.currentCode, 'text/html');
+        const el = doc.querySelector(selector);
+        if (!el) return;
+        if (e.data.type === 'nebulux:edit-text') {
+          el.innerHTML = text;
+        } else {
+          el.setAttribute('src', imgSrc);
+        }
+        const newCode = '<!DOCTYPE html>\n' + doc.documentElement.outerHTML;
+        commitCurrentCode(newCode);
+        // Update current page in multi-page state
+        const slug = getCurrentPage()?.name || 'index';
+        const pageObj = state.pages.find(p => p.name === slug);
+        if (pageObj) pageObj.code = newCode;
+        Project.save();
+        addToHistory(newCode, 'Edited');
+      } catch(err) {
+        console.warn('[nebulux] inline edit failed:', err);
+      }
+    }
   });
 
   /* ============================================================
@@ -1273,6 +1304,68 @@ finishCanvasGeneration(['index']);
             e.stopPropagation();
           }
         }, true);
+
+        /* ── Inline editing ───────────────────────────────────────────────── */
+        function _getSelector(el) {
+          if (el.id) return '#' + el.id;
+          const tag = el.tagName.toLowerCase();
+          const parent = el.parentElement;
+          if (!parent) return tag;
+          const siblings = Array.from(parent.children).filter(c => c.tagName === el.tagName);
+          const idx = siblings.indexOf(el);
+          return _getSelector(parent) + ' > ' + tag + (siblings.length > 1 ? ':nth-of-type(' + (idx + 1) + ')' : '');
+        }
+
+        document.addEventListener('dblclick', function(e) {
+          const img = e.target.closest('img');
+          if (img) {
+            e.preventDefault();
+            e.stopPropagation();
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = 'image/*';
+            input.style.cssText = 'display:none';
+            document.body.appendChild(input);
+            input.click();
+            input.addEventListener('change', function() {
+              const file = input.files[0];
+              if (!file) { input.remove(); return; }
+              const reader = new FileReader();
+              reader.onload = function(ev) {
+                const dataUrl = ev.target.result;
+                img.src = dataUrl;
+                try { parent.postMessage({ type: 'nebulux:edit-image', selector: _getSelector(img), src: dataUrl }, '*'); } catch(e2) {}
+                input.remove();
+              };
+              reader.readAsDataURL(file);
+            });
+            return;
+          }
+
+          const textTags = ['P','H1','H2','H3','H4','H5','H6','SPAN','A','LI','TD','TH','BUTTON','LABEL','DIV'];
+          const el2 = e.target.closest(textTags.map(t => t.toLowerCase()).join(','));
+          if (el2 && !el2.querySelector('img') && el2.children.length === 0 || (el2 && el2.innerText.trim())) {
+            e.preventDefault();
+            e.stopPropagation();
+            el2.contentEditable = 'true';
+            el2.focus();
+            el2.style.outline = '2px dashed rgba(247,148,29,0.7)';
+            el2.style.borderRadius = '3px';
+            function onBlur() {
+              el2.contentEditable = 'false';
+              el2.style.outline = '';
+              el2.style.borderRadius = '';
+              try { parent.postMessage({ type: 'nebulux:edit-text', selector: _getSelector(el2), text: el2.innerHTML }, '*'); } catch(e2) {}
+              el2.removeEventListener('blur', onBlur);
+              el2.removeEventListener('keydown', onKey);
+            }
+            function onKey(e3) { if (e3.key === 'Escape') { el2.blur(); } }
+            el2.addEventListener('blur', onBlur);
+            el2.addEventListener('keydown', onKey);
+          }
+        }, true);
+        /* ── end inline editing ─────────────────────────────────────────── */
+
       })();
       <\/script>
     `;
@@ -1386,6 +1479,31 @@ finishCanvasGeneration(['index']);
     const nbxId = 'nbx_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
     element.setAttribute('data-nbx-id', nbxId);
 
+    // ── Sync nbxId into state.currentCode so DOMParser can find it later ──
+    if (state.currentCode) {
+      try {
+        const parser = new DOMParser();
+        const d = parser.parseFromString(state.currentCode, 'text/html');
+        // Build a reliable selector using id, or tag+classes, or outerHTML match
+        let found = null;
+        if (element.id) {
+          found = d.getElementById(element.id);
+        }
+        if (!found) {
+          // Match by tag + textContent + position
+          const allMatching = Array.from(d.querySelectorAll(tag));
+          const liveText = element.textContent.trim();
+          found = allMatching.find(el => el.textContent.trim() === liveText) || allMatching[0];
+        }
+        if (found) {
+          found.setAttribute('data-nbx-id', nbxId);
+          state.currentCode = '<!DOCTYPE html>\n' + d.documentElement.outerHTML;
+          const page = getCurrentPage();
+          if (page) page.code = state.currentCode;
+        }
+      } catch(e) { console.warn('[nebulux] nbxId sync failed:', e); }
+    }
+
     state.selectedElement = { tag, text, path: tag + id + classes, nbxId };
 
     el.selectionBanner.classList.add('visible');
@@ -1410,6 +1528,11 @@ finishCanvasGeneration(['index']);
     el.elementEditor.classList.add('visible');
     el.editorInput.value = '';
     el.editorInput.focus();
+    // Show relevant inline edit buttons
+    const isImg = tag === 'img';
+    const isText = ['p','h1','h2','h3','h4','h5','h6','span','a','li','td','th','button','label'].includes(tag);
+    el.editorEditText.style.display = isText ? '' : 'none';
+    el.editorReplaceImage.style.display = isImg ? '' : 'none';
     log('element_selected', { tag, path: state.selectedElement.path, nbxId });
   }
 
@@ -1448,7 +1571,7 @@ finishCanvasGeneration(['index']);
           if (Array.isArray(files) && files.length > 0) {
             state.files = files.slice(0, _MAX_FILES);
             log('files_loaded_from_storage', { count: state.files.length });
-            _renderFileBadge();
+            _renderPendingPreview();
             return; // sessionStorage wins — this is a fresh generation
           }
         }
@@ -1502,7 +1625,7 @@ finishCanvasGeneration(['index']);
         const files = JSON.parse(raw);
         if (Array.isArray(files) && files.length > 0) {
           state.files = files.slice(0, _MAX_FILES);
-          _renderFileBadge();
+          _renderPendingPreview();
           // Show a subtle note so users know their reference files are active
           const names = files.map(f => f.name).join(', ');
           addMessage('ai', `📎 Reference file${files.length > 1 ? 's' : ''} restored: ${names} — the AI will use ${files.length > 1 ? 'them' : 'it'} for context. Re-attach to update.`);
@@ -1522,11 +1645,34 @@ finishCanvasGeneration(['index']);
         }
         const reader = new FileReader();
         reader.onload = () => {
-          resolve({
-            name: file.name,
-            type: file.type || 'application/octet-stream',
-            data: reader.result,  // data:mime;base64,...
-          });
+          const fullData = reader.result;
+          const fileType = file.type || 'application/octet-stream';
+          // Generate compressed thumbnail for chat persistence
+          if (fileType.startsWith('image/')) {
+            const img = new Image();
+            img.onload = () => {
+              try {
+                const MAX = 120;
+                const ratio = Math.min(MAX / img.width, MAX / img.height, 1);
+                const canvas = document.createElement('canvas');
+                canvas.width = Math.round(img.width * ratio);
+                canvas.height = Math.round(img.height * ratio);
+                canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+                resolve({
+                  name: file.name,
+                  type: fileType,
+                  data: fullData,
+                  thumb: canvas.toDataURL('image/jpeg', 0.75),
+                });
+              } catch(e) {
+                resolve({ name: file.name, type: fileType, data: fullData });
+              }
+            };
+            img.onerror = () => resolve({ name: file.name, type: fileType, data: fullData });
+            img.src = fullData;
+          } else {
+            resolve({ name: file.name, type: fileType, data: fullData });
+          }
         };
         reader.onerror = () => reject(new Error(`Failed to read "${file.name}".`));
         reader.readAsDataURL(file);
@@ -1550,8 +1696,8 @@ finishCanvasGeneration(['index']);
       }
       if (newFiles.length > 0) {
         state.files.push(...newFiles);
-        _renderFileBadge();
-        _showFileAttachments(newFiles);
+        _renderPendingPreview();
+        _renderPendingPreview();
         log('files_added', { count: newFiles.length, total: state.files.length });
       }
     }
@@ -1559,13 +1705,13 @@ finishCanvasGeneration(['index']);
     /** Remove a file by index */
     function removeFile(index) {
       state.files.splice(index, 1);
-      _renderFileBadge();
+      _renderPendingPreview();
     }
 
     /** Clear all files */
     function clearFiles() {
       state.files = [];
-      _renderFileBadge();
+      _renderPendingPreview();
     }
 
     function isImage(type) {
@@ -1573,44 +1719,43 @@ finishCanvasGeneration(['index']);
     }
 
     /** Update the attach badge count in the UI */
-    function _renderFileBadge() {
-      const badge = document.getElementById('attachBadge');
-      if (!badge) return;
-      if (state.files.length > 0) {
-        badge.textContent = state.files.length;
-        badge.style.display = 'flex';
-      } else {
-        badge.style.display = 'none';
-      }
+    function _esc(str) {
+      return String(str).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     }
 
-    /** Show file thumbnails in the chat */
-    function _showFileAttachments(files) {
-      // FIX 5: file names come from the OS and are user-controlled.
-      // A name like "><img src=x onerror=...> would execute JS in the
-      // builder's own origin when injected raw into innerHTML.
-      // Escape every attribute-interpolated value first.
-      function _esc(str) {
-        return String(str)
-          .replace(/&/g, '&amp;')
-          .replace(/"/g, '&quot;')
-          .replace(/'/g, '&#39;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;');
-      }
-      const previews = files.map(f => {
-        const safeName = _esc(f.name);
+    function _renderPendingPreview() {
+      const wrap = document.getElementById('pending-files-preview');
+      if (!wrap) return;
+      wrap.style.cssText = 'display:flex;flex-direction:row;flex-wrap:nowrap;overflow-x:auto;gap:8px;padding:0 14px 8px;';
+      wrap.innerHTML = '';
+      state.files.forEach(function(f, i) {
+        const card = document.createElement('div');
+        card.className = 'pfc';
         if (isImage(f.type)) {
-          return `<div class="file-preview-thumb" title="${safeName}"><img src="${_esc(f.data)}" alt="${safeName}"></div>`;
+          card.style.cssText = 'width:80px;min-width:80px;max-width:80px;height:90px;min-height:90px;max-height:90px;overflow:hidden;position:relative;border-radius:10px;';
+          card.innerHTML = '<img src="' + f.data + '" alt="' + _esc(f.name) + '" style="width:80px;height:90px;max-width:80px;max-height:90px;object-fit:cover;display:block;position:absolute;top:0;left:0;">' +
+            '<button class="pfc-remove" data-i="' + i + '" title="Remove" style="position:absolute;top:4px;right:4px;width:18px;height:18px;border-radius:50%;background:rgba(0,0,0,0.75);border:none;color:#fff;font-size:11px;cursor:pointer;z-index:10;padding:0;display:block;text-align:center;line-height:18px;">&times;</button>';
+        } else {
+          const ext = f.name.split('.').pop().toUpperCase().slice(0, 4);
+          const short = f.name.length > 14 ? f.name.slice(0, 12) + '\u2026' : f.name;
+          card.innerHTML = '<div class="pfc-ext">' + ext + '</div>' +
+            '<div class="pfc-name">' + _esc(short) + '</div>' +
+            '<button class="pfc-remove" data-i="' + i + '" title="Remove" style="position:absolute;top:4px;right:4px;width:18px;height:18px;border-radius:50%;background:rgba(0,0,0,0.75);border:none;color:#fff;font-size:11px;cursor:pointer;z-index:10;padding:0;display:block;text-align:center;line-height:18px;">&times;</button>';
         }
-        return `<div class="file-preview-pill" title="${safeName}"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>${safeName}</div>`;
-      }).join('');
-      if (previews) {
-        addMessage('user', `<div class="file-previews">${previews}</div>`, true);
-      }
+        wrap.appendChild(card);
+      });
+      wrap.querySelectorAll('.pfc-remove').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          removeFile(parseInt(btn.dataset.i));
+        });
+      });
     }
 
-    return { loadFromStorage, saveToProject, loadFromProject, readFile, addFiles, removeFile, clearFiles, isImage };
+    // _showFileAttachments removed — preview handled by _renderPendingPreview
+
+
+    return { loadFromStorage, saveToProject, loadFromProject, readFile, addFiles, removeFile, clearFiles, isImage, getFiles: function() { return state.files.slice(); } };
   })();
 
   /* ============================================================
@@ -1679,10 +1824,32 @@ finishCanvasGeneration(['index']);
       }
     },
 
-    async extractSpec(prompt) {
+    async extractSpec(prompt, files) {
       const body = { prompt: prompt + MOBILE_REQUIREMENTS_SUFFIX };
-      if (state.files && state.files.length > 0) {
-        body.files = state.files.map(f => ({ name: f.name, type: f.type, data: f.data }));
+      const filesToSend = (files && files.length > 0) ? files : (state.files || []);
+      if (filesToSend.length > 0) {
+        // Use thumb if available; otherwise compress full data on the fly
+        const filePromises = filesToSend.map(f => new Promise(resolve => {
+          const src = f.thumb || f.data;
+          if (!src || !f.type.startsWith('image/')) {
+            resolve({ name: f.name, type: f.type, data: src || f.data });
+            return;
+          }
+          // Hard cap: compress to max 800px and 0.6 quality
+          const img = new Image();
+          img.onload = () => {
+            const MAX = 800;
+            const ratio = Math.min(MAX / img.width, MAX / img.height, 1);
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.round(img.width * ratio);
+            canvas.height = Math.round(img.height * ratio);
+            canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+            resolve({ name: f.name, type: 'image/jpeg', data: canvas.toDataURL('image/jpeg', 0.6) });
+          };
+          img.onerror = () => resolve({ name: f.name, type: f.type, data: src });
+          img.src = src;
+        }));
+        body.files = await Promise.all(filePromises);
       }
       const data = await this._fetch('/spec/', body);
       return { spec: data.spec || {}, missing_fields: data.missing_fields || [], tokens: data.tokens_used || 0 };
@@ -1753,8 +1920,7 @@ finishCanvasGeneration(['index']);
         let buffer = '', fullCode = '', finalId = null, finalTokens = 0;
         let finalPages = null, finalNavigation = null;
 
-        // Show the thinking widget immediately — bubble appears before first byte
-        AIThinkChat.show();
+        // Widget appears only when thinking_start is received from server
 
         while (true) {
           const { done, value } = await reader.read();
@@ -1802,6 +1968,9 @@ finishCanvasGeneration(['index']);
                   const slug = pageMarker[1];
                   GenStage.setWriting(slug);
                   AIThinkChat.addWritingRow(slug);
+                } else if (fullCode === '' && text.trim()) {
+                  // No page marker but code is arriving — auto-create writing panel
+                  AIThinkChat.addWritingRow('index');
                 }
                 fullCode += text;
                 AIThinkChat.appendCodeChunk(text);
@@ -1951,7 +2120,7 @@ finishCanvasGeneration(['index']);
         padding: 0; width: 100%; text-align: left; user-select: none;
       }
       .atw-toggle:hover { color: rgba(200,205,255,.75); }
-      .atw-toggle--done { color: rgba(200,205,255,.45); }
+      .atw-toggle--done { color: rgba(200,205,255,.65); font-style: italic; }
       .atw-chevron { flex-shrink: 0; }
       .atw-spin-dot {
         width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
@@ -1964,11 +2133,14 @@ finishCanvasGeneration(['index']);
       .atw-body { margin-top: 8px; }
       .atw-body--hidden { display: none; }
       .atw-think-text {
-        margin: 0; padding: 0;
-        font-size: 11.5px; line-height: 1.65;
-        color: rgba(200,205,255,.55);
+        margin: 6px 0 0; padding: 10px 12px;
+        font-size: 12.5px; line-height: 1.75;
+        color: rgba(220,225,255,.82);
         white-space: pre-wrap; word-break: break-word;
-        max-height: 180px; overflow-y: auto;
+        max-height: 260px; overflow-y: auto;
+        background: rgba(255,255,255,.04);
+        border-left: 2px solid rgba(247,148,29,.5);
+        border-radius: 0 6px 6px 0;
       }
       .atw-action {
         display: flex; align-items: center; gap: 7px;
@@ -1987,10 +2159,12 @@ finishCanvasGeneration(['index']);
       }
       .atw-code-hdr {
         display: flex; align-items: center; gap: 6px;
-        font-size: 11px; color: rgba(200,205,255,.4);
+        font-size: 11px; color: rgba(200,205,255,.5);
         background: none; border: none; cursor: pointer;
-        font-family: inherit; padding: 6px 10px; width: 100%; text-align: left;
+        font-family: inherit; padding: 7px 10px; width: 100%; text-align: left;
+        border-top: 1px solid rgba(255,255,255,.05);
       }
+      .atw-code-hdr:hover { color: rgba(200,205,255,.75); background: rgba(255,255,255,.02); }
       .atw-code-dot {
         width: 5px; height: 5px; border-radius: 50%;
         background: #F7941D; flex-shrink: 0; animation: atw-spin 1.4s linear infinite;
@@ -2066,6 +2240,35 @@ finishCanvasGeneration(['index']);
       /* ── Steps / history ── */
       .step-row { display:flex; align-items:center; gap:7px; font-size:12px; color:rgba(200,205,255,.6); margin:2px 0; }
       .step-check { flex-shrink:0; }
+      .msg-inline-code { font-family: 'SF Mono', ui-monospace, monospace; font-size: 11.5px; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.1); border-radius: 4px; padding: 1px 5px; color: rgba(220,225,255,.9); }
+
+      /* ── Message code blocks ── */
+      .msg-code-panel {
+        margin: 6px 0 2px;
+        background: rgba(255,255,255,.03);
+        border: 1px solid rgba(255,255,255,.07);
+        border-radius: 7px; overflow: hidden;
+      }
+      .msg-code-hdr {
+        display: flex; align-items: center; gap: 6px;
+        padding: 6px 10px;
+        font-size: 11px; color: rgba(200,205,255,.5);
+      }
+      .msg-code-lang { flex: 1; font-family: 'SF Mono', monospace; }
+      .msg-code-copy {
+        background: none; border: 1px solid rgba(255,255,255,.1);
+        border-radius: 4px; padding: 2px 7px;
+        font-size: 10px; color: rgba(200,205,255,.5);
+        cursor: pointer; font-family: inherit;
+        transition: color .15s, border-color .15s;
+      }
+      .msg-code-copy:hover { color: #F7941D; border-color: rgba(247,148,29,.4); }
+      .msg-code-pre {
+        margin: 0; padding: 8px 10px;
+        font-family: 'SF Mono', monospace; font-size: 11px;
+        color: rgba(200,205,255,.75); white-space: pre; overflow-x: auto;
+        border-top: 1px solid rgba(255,255,255,.05);
+      }
     `;
     document.head.appendChild(s);
   })();
@@ -2360,7 +2563,7 @@ finishCanvasGeneration(['index']);
         });
         const brandLine = brandName ? `<strong>Brand:</strong> ${brandName}<br>` : '';
         const prefLines = parts.length > 0 ? parts.join('<br>') : '';
-        msg.innerHTML = `<div class="followup-done">${brandLine}${prefLines}</div>`;
+        msg.innerHTML = "";
         Chat.push('ai', 'Preferences: ' + (brandName ? 'Brand: ' + brandName + '. ' : '') + parts.map(p => p.replace(/<[^>]+>/g, '')).join(', '));
         Chat.saveToStorage();
         _false = null;
@@ -2381,24 +2584,39 @@ finishCanvasGeneration(['index']);
   ============================================================ */
 
 
-  async function _conversationalReply(userText) {
+  async function _conversationalReply(userText, capturedFiles) {
     const msgEl = addMessage('ai', '…');
     try {
-      // Pass a snippet of the current page so the AI can answer questions
-      // like "what font does my site use?" accurately.
-      // NOTE: 1500 chars — backend previously truncated to 800, now uses the full 1500.
       const pageContext = state.currentCode ? state.currentCode.substring(0, 1500) : '';
+      const filesToSend = (capturedFiles && capturedFiles.length > 0) ? capturedFiles : [];
+      // Compress images before sending to avoid token limit errors
+      const compressedFiles = await Promise.all(filesToSend.map(f => new Promise(resolve => {
+        if (!f.type || !f.type.startsWith('image/')) { resolve({ name: f.name, type: f.type, data: f.data }); return; }
+        const src = f.thumb || f.data;
+        const img = new Image();
+        img.onload = () => {
+          const MAX = 800;
+          const ratio = Math.min(MAX / img.width, MAX / img.height, 1);
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.round(img.width * ratio);
+          canvas.height = Math.round(img.height * ratio);
+          canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+          resolve({ name: f.name, type: 'image/jpeg', data: canvas.toDataURL('image/jpeg', 0.6) });
+        };
+        img.onerror = () => resolve({ name: f.name, type: f.type, data: src });
+        img.src = src;
+      })));
       const data = await API._fetch('/chat/', {
         message:      userText,
         page_context: pageContext,
-        // Send recent history so the AI remembers what was discussed
         chat_history: _getRecentHistory(6),
+        files: compressedFiles,
       });
       const reply = (typeof data.reply === 'string' && data.reply.trim())
         ? data.reply
         : 'How can I help with your site?';
       const contentEl = msgEl.querySelector('.message-content') || msgEl;
-      contentEl.textContent = reply;
+      _renderTextWithCode(contentEl, reply);
       Chat.push('ai', reply);
       Chat.saveToStorage();
     } catch {
@@ -2453,6 +2671,8 @@ finishCanvasGeneration(['index']);
   async function generateWebsite(prompt) {
     return Queue.add(async () => {
       _setGenerating(true);
+      // Capture files BEFORE addMessage clears them
+      const _generationFiles = FileManager.getFiles();
       // Show user's original prompt in chat (if not already shown by caller)
       const cleanPrompt = prompt.replace(/\[MOBILE REQUIREMENTS[\s\S]*$/, '').trim();
       const lastUserMsg = el.messages.querySelector('.message.user:last-of-type');
@@ -2468,8 +2688,6 @@ finishCanvasGeneration(['index']);
 
       // ── INSTANT ACKNOWLEDGMENT ──────────────────────────────────────────────
       // Show the AI thinking widget immediately so the user never sees silence.
-      AIThinkChat.show();
-      AIThinkChat.addPhase('analyzing', 'Reading your prompt…');
 
       // Hide the device frame immediately so the user never sees a blank
       // white rectangle — GenStage covers the canvas during generation.
@@ -2482,7 +2700,7 @@ finishCanvasGeneration(['index']);
       let spec, missingFields;
       try {
         AIThinkChat.addPhase('planning', 'Extracting project structure…');
-        const result = await API.extractSpec(prompt);
+        const result = await API.extractSpec(prompt, _generationFiles);
         spec = result.spec;
         missingFields = result.missing_fields;
         AIThinkChat.addPhase('designing', 'Planning design system & layout…');
@@ -2976,9 +3194,18 @@ finishCanvasGeneration(['index']);
   const Chat = {
     _ready: false,
 
-    push(role, text) {
+    push(role, text, files) {
       if (!this._ready) return;
-      _chatMessages.push({ role, text, ts: Date.now() });
+      const entry = { role, text, ts: Date.now() };
+      if (files && files.length > 0) {
+        // Compress images to small thumbnails for storage (max 80x80)
+        entry.files = files.map(f => {
+          // Use pre-generated thumb if available, else fall back to full data if small
+          var stored = f.thumb || (f.data && f.data.length < 400 * 1024 ? f.data : null);
+          return stored ? { name: f.name, type: f.type, thumb: stored } : null;
+        }).filter(Boolean);
+      }
+      _chatMessages.push(entry);
       if (_chatMessages.length > CHAT_MAX_MESSAGES) _chatMessages.shift();
     },
 
@@ -3004,6 +3231,33 @@ finishCanvasGeneration(['index']);
       }
     },
 
+    _flushToServer() {
+      if (!state.lastGenerationId) return;
+      if (!window.Auth || !Auth.isAuthenticated || !Auth.isAuthenticated()) return;
+      try {
+        const toSave = _chatMessages.filter(m =>
+          (!m.text || !m.text.startsWith('Sign in to start'))
+          && m.text !== '[attachment]'
+        ).map(m => ({ role: m.role, text: m.text, ts: m.ts })); // strip file blobs
+        const pagesPayload = {};
+        state.pages.forEach(p => {
+          if (p.code) pagesPayload[p.name] = {
+            code: p.code,
+            history: p.history || [],
+            historyIndex: p.historyIndex !== undefined ? p.historyIndex : -1,
+          };
+        });
+        pagesPayload['_chat'] = toSave;
+        Auth.apiFetch(CONFIG.apiBaseUrl + '/websites/' + state.lastGenerationId + '/', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pages_json: pagesPayload }),
+        }).catch(e => console.warn('[Nebulux] Chat server save failed:', e));
+      } catch(e) {
+        console.warn('[Nebulux] Chat server save error:', e);
+      }
+    },
+
     trimFromIndex(domIndex) {
       if (domIndex >= 0 && domIndex < _chatMessages.length) {
         _chatMessages.splice(domIndex);
@@ -3025,16 +3279,35 @@ finishCanvasGeneration(['index']);
             // Fix 13: build the same DOM shape that addMessage() produces so that
             // the edit-button text-extraction logic (which looks for a child
             // contentSpan) works identically for restored and live messages.
-            _chatMessages.forEach(({ role, text }) => {
+            _chatMessages.forEach(({ role, text, files }) => {
               const msg = document.createElement('div');
               msg.className = `message ${role || 'ai'}`;
 
+              // Rebuild file thumbnails if saved with this message
+              if (files && files.length > 0) {
+                var filesDiv = document.createElement('div');
+                filesDiv.className = 'msg-files';
+                filesDiv.style.cssText = 'display:flex;flex-direction:row;flex-wrap:nowrap;overflow-x:auto;gap:6px;margin-bottom:7px;';
+                files.forEach(function(f) {
+                  var card = document.createElement('div');
+                  card.className = 'msg-file-card';
+                  card.style.cssText = 'flex-shrink:0;width:56px;min-width:56px;max-width:56px;height:56px;min-height:56px;max-height:56px;overflow:hidden;position:relative;border-radius:8px;background:rgba(255,255,255,0.06);';
+                  if (f.type && f.type.startsWith('image/') && (f.thumb || f.data)) {
+                    card.innerHTML = '<img src="' + (f.thumb || f.data) + '" alt="" style="width:56px;height:56px;max-width:56px;max-height:56px;object-fit:cover;display:block;"><span class="insp-label">Inspiration</span>';
+                  } else {
+                    var ext = f.name.split('.').pop().toUpperCase().slice(0,4);
+                    card.innerHTML = '<div class="msg-file-ext">' + ext + '</div>';
+                  }
+                  filesDiv.appendChild(card);
+                });
+                msg.appendChild(filesDiv);
+              }
+
               const contentSpan = document.createElement('span');
               contentSpan.className = 'message-content';
-              contentSpan.textContent = text || '';
+              _renderTextWithCode(contentSpan, text || '');
               msg.appendChild(contentSpan);
 
-              _attachEditBtn(msg);   // wire edit pencil for user bubbles
               el.messages.appendChild(msg);
             });
 
@@ -3054,72 +3327,11 @@ finishCanvasGeneration(['index']);
      CHAT & MESSAGES
   ============================================================ */
 
-  // Tracks which user bubble is pending an edit (set by the edit button)
-  let _editingFromMsg = null;
+  // Edit feature removed
 
-  function _attachEditBtn(msgEl) {
-    if (!msgEl.classList.contains('user')) return;
-    if (msgEl.querySelector('.msg-edit-btn')) return;
 
-    const editBtn = document.createElement('button');
-    editBtn.className = 'msg-edit-btn';
-    editBtn.title = 'Edit and resend';
-    editBtn.innerHTML = `<svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`;
 
-    editBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-
-      // Clear any previous pending edit highlight
-      el.messages.querySelectorAll('.message.editing-source')
-        .forEach(m => m.classList.remove('editing-source'));
-
-      // FIX #12: addMessage() wraps all text in <span class="message-content">.
-      // Scanning raw childNodes for text nodes misses it. Read the span directly.
-      const contentSpan = msgEl.querySelector('.message-content');
-      const text = contentSpan
-        ? contentSpan.textContent.trim()
-        : msgEl.textContent.trim();
-
-      msgEl.classList.add('editing-source');
-      _editingFromMsg = msgEl;
-
-      el.chatInput.value = text;
-      el.chatInput.dispatchEvent(new Event('input'));
-      el.chatInput.focus();
-      el.chatInput.setSelectionRange(text.length, text.length);
-    });
-
-    msgEl.appendChild(editBtn);
-  }
-
-  function _pruneOnEdit() {
-    const sourceEl = _editingFromMsg;
-    if (!sourceEl) return;
-
-    const allMsgs = Array.from(el.messages.querySelectorAll('.message'));
-    const idx = allMsgs.indexOf(sourceEl);
-
-    if (idx !== -1) {
-      // Remove all DOM messages from the edited message onward
-      allMsgs.slice(idx).forEach(m => m.remove());
-      // steps-messages are never stored in _chatMessages, so the stored index
-      // is the count of non-steps messages that appear BEFORE the edited bubble
-      const storedIdx = allMsgs.slice(0, idx)
-        .filter(m => !m.classList.contains('steps-message')).length;
-      Chat.trimFromIndex(storedIdx);
-    }
-
-    sourceEl.classList.remove('editing-source');
-    _editingFromMsg = null;
-  }
-
-  // Capture phase — prune before sendMessage() fires
-  el.sendBtn.addEventListener('click', _pruneOnEdit, true);
-  el.chatInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) _pruneOnEdit();
-  }, true);
-
-  // Cancel edit mode if user clears the input
+// Cancel edit mode if user clears the input
   el.chatInput.addEventListener('input', () => {
     if (!el.chatInput.value.trim() && _editingFromMsg) {
       _editingFromMsg.classList.remove('editing-source');
@@ -3127,10 +3339,56 @@ finishCanvasGeneration(['index']);
     }
   });
 
-  function addMessage(role, text, isHtml, extraClass) {
-    Chat.push(role, isHtml ? '[attachment]' : text);
-    Chat.saveToStorage();
+  function _renderTextWithCode(container, text) {
+    const parts = text.split(/(```[\w]*\n[\s\S]*?```)/g);
+    parts.forEach(part => {
+      const m = part.match(/^```([\w]*)\n([\s\S]*?)```$/);
+      if (m) {
+        const lang = m[1] || 'code';
+        const code = m[2];
+        const panel = document.createElement('div');
+        panel.className = 'msg-code-panel';
+        const hdr = document.createElement('div');
+        hdr.className = 'msg-code-hdr';
+        const langSpan = document.createElement('span');
+        langSpan.className = 'msg-code-lang';
+        langSpan.textContent = lang;
+        const copyBtn = document.createElement('button');
+        copyBtn.className = 'msg-code-copy';
+        copyBtn.textContent = 'Copy';
+        copyBtn.addEventListener('click', () => {
+          navigator.clipboard.writeText(code).then(() => {
+            copyBtn.textContent = 'Copied!';
+            setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1500);
+          }).catch(() => {});
+        });
+        hdr.appendChild(langSpan);
+        hdr.appendChild(copyBtn);
+        const pre = document.createElement('pre');
+        pre.className = 'msg-code-pre';
+        pre.textContent = code;
+        panel.appendChild(hdr);
+        panel.appendChild(pre);
+        container.appendChild(panel);
+      } else if (part) {
+        // Handle inline backtick code
+        const inlineRe = /(`[^`]+`)/g;
+        const inlineParts = part.split(inlineRe);
+        inlineParts.forEach(ip => {
+          if (ip.startsWith('`') && ip.endsWith('`') && ip.length > 2) {
+            const code = document.createElement('code');
+            code.className = 'msg-inline-code';
+            code.textContent = ip.slice(1, -1);
+            container.appendChild(code);
+          } else if (ip) {
+            container.appendChild(document.createTextNode(ip));
+          }
+        });
+      }
+    });
+  }
 
+  function addMessage(role, text, isHtml, extraClass) {
     const msg = document.createElement('div');
     msg.className = `message ${role}`;
     if (extraClass) msg.classList.add(extraClass);
@@ -3140,11 +3398,41 @@ finishCanvasGeneration(['index']);
     if (isHtml) {
       contentSpan.innerHTML = text;
     } else {
-      contentSpan.textContent = text;
+      _renderTextWithCode(contentSpan, text);
     }
     msg.appendChild(contentSpan);
 
-    _attachEditBtn(msg);
+    // Inject pending file cards into user bubble, then clear preview
+    if (role === 'user' && !isHtml) {
+      var pending = FileManager.getFiles();
+      if (pending.length > 0) {
+        var filesDiv = document.createElement('div');
+        filesDiv.className = 'msg-files';
+        filesDiv.style.cssText = 'display:flex;flex-direction:row;flex-wrap:nowrap;overflow-x:auto;gap:6px;margin-bottom:7px;';
+        pending.forEach(function(f) {
+          var card = document.createElement('div');
+          card.className = 'msg-file-card';
+          card.style.cssText = 'flex-shrink:0;width:56px;min-width:56px;max-width:56px;height:56px;min-height:56px;max-height:56px;overflow:hidden;position:relative;border-radius:8px;background:rgba(255,255,255,0.06);';
+          if (FileManager.isImage(f.type)) {
+            card.innerHTML = '<img src="' + f.data + '" alt="" style="width:56px;height:56px;max-width:56px;max-height:56px;object-fit:cover;display:block;"><span class="insp-label">Inspiration</span>';
+          } else {
+            var ext = f.name.split('.').pop().toUpperCase().slice(0, 4);
+            card.innerHTML = '<div class="msg-file-ext">' + ext + '</div><span class="insp-label">Inspiration</span>';
+          }
+          filesDiv.appendChild(card);
+        });
+        msg.insertBefore(filesDiv, contentSpan);
+        Chat.push(role, text, pending);
+        Chat.saveToStorage();
+        FileManager.clearFiles();
+        el.messages.appendChild(msg);
+        el.sidebarBody.scrollTop = el.sidebarBody.scrollHeight;
+        return msg;
+      }
+    }
+    // No files — push normally
+    Chat.push(role, isHtml ? '[attachment]' : text);
+    Chat.saveToStorage();
     el.messages.appendChild(msg);
     el.sidebarBody.scrollTop = el.sidebarBody.scrollHeight;
     return msg;
@@ -3287,8 +3575,6 @@ finishCanvasGeneration(['index']);
       if (el.deviceFrame) el.deviceFrame.style.visibility = 'hidden';
       GenStage.reset();
       AIThinkChat.reset();
-      AIThinkChat.show();
-      AIThinkChat.addPhase('analyzing', 'Reading your prompt…');
       GenStage.show([newPage.name], { title: 'Creating page' });
       GenStage.setWriting(newPage.name);
 
@@ -3517,6 +3803,8 @@ finishCanvasGeneration(['index']);
       return;
     }
 
+    // Capture files BEFORE addMessage clears them
+    const _chatFiles = FileManager.getFiles();
     // Show user message; briefly disable input while AI classifies intent
     addMessage('user', text);
     el.chatInput.value = '';
@@ -3554,7 +3842,7 @@ finishCanvasGeneration(['index']);
         await _switchAndEditFromChat(intent.page_name || '', intent.instruction || text);
         break;
       case 'chat':
-        _conversationalReply(intent.instruction || text);
+        _conversationalReply(intent.instruction || text, _chatFiles);
         break;
       case 'modify':
       default:
@@ -3653,7 +3941,17 @@ finishCanvasGeneration(['index']);
           const page = getCurrentPage();
           const code = page ? page.code : state.currentCode;
           const pagesPayload = {};
-          state.pages.forEach(p => { if (p.code) pagesPayload[p.name] = p.code; });
+          state.pages.forEach(p => {
+            if (p.code) pagesPayload[p.name] = {
+              code: p.code,
+              history: p.history || [],
+              historyIndex: p.historyIndex !== undefined ? p.historyIndex : -1,
+            };
+          });
+          // Include chat messages in the same PATCH
+          pagesPayload['_chat'] = _chatMessages
+            .filter(m => (!m.text || !m.text.startsWith('Sign in to start')) && m.text !== '[attachment]')
+            .map(m => ({ role: m.role, text: m.text, ts: m.ts }));
           Auth.apiFetch(`${CONFIG.apiBaseUrl}/websites/${state.lastGenerationId}/`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
@@ -3703,9 +4001,9 @@ finishCanvasGeneration(['index']);
           try {
             return _doSave(true);
           } catch (e2) {
-            console.error('[Nebulux] Save still failed after cleanup:', e2);
-            addMessage('ai', '⚠️ Storage full. Try clearing browser data or removing old projects.');
-            return false;
+            // Local storage full — not a problem, projects are saved to server
+            console.warn('[Nebulux] Local cache full — skipping local save, server save unaffected.');
+            return true;
           }
         }
 
@@ -3792,8 +4090,10 @@ finishCanvasGeneration(['index']);
             el.projectTitle.textContent = state.projectName;
             const activePage = getCurrentPage();
             state.currentCode = activePage ? (activePage.code || '') : '';
-            log('project_loaded', { projectId: state.projectId, source: 'localStorage', pages: state.pages.length });
-            return !!state.currentCode;
+            log('project_loaded', { projectId: state.projectId, source: 'localStorage', pages: state.pages.length, hasCode: !!state.currentCode });
+            if (state.currentCode) return true;
+            // Code is empty — fall through to API fallback if possible
+            console.log('[Nebulux] load: localStorage entry has no code, trying API fallback');
           }
         }
       } catch (e) {
@@ -3863,13 +4163,18 @@ finishCanvasGeneration(['index']);
       }
 
       // ── Step 3: API fallback (integer ID — new device or cleared storage) ──
-      // Only makes sense when the project ID is the DB integer. proj_* IDs
-      // are local-only; there is no API route to recover them.
-      if (!isApiId) return false;
+      if (!isApiId) {
+        console.log('[Nebulux] load: not an API id, giving up. projectId=', state.projectId);
+        return false;
+      }
 
       try {
         const useAuth = window.Auth && typeof Auth.apiFetch === 'function';
-        if (!useAuth || !Auth.isAuthenticated()) return false;
+        console.log('[Nebulux] load: trying API fallback. isApiId=', isApiId, 'useAuth=', useAuth, 'isAuth=', Auth && Auth.isAuthenticated && Auth.isAuthenticated());
+        if (!useAuth || !Auth.isAuthenticated()) {
+          console.log('[Nebulux] load: auth not ready, cannot fetch');
+          return false;
+        }
 
         // FIX #4: CONFIG.apiBaseUrl already includes /api, so do NOT prepend it again.
         const res = await Auth.apiFetch(`${CONFIG.apiBaseUrl}/websites/${state.projectId}/`);
@@ -3886,27 +4191,33 @@ finishCanvasGeneration(['index']);
         // Multi-page API response
         if (data.is_multipage && data.pages && typeof data.pages === 'object' && Object.keys(data.pages).length > 0) {
           const navOrder = data.navigation || {};
-          const sortedSlugs = Object.keys(data.pages).sort((a, b) => {
+          const sortedSlugs = Object.keys(data.pages).filter(s => !s.startsWith('_')).sort((a, b) => {
             const oa = navOrder[a]?.order ?? 999;
             const ob = navOrder[b]?.order ?? 999;
             return oa - ob;
           });
 
-          state.pages = sortedSlugs.map((slug, idx) => ({
-            id: 'page_' + Date.now() + '_' + idx,
-            name: slug,
-            code: data.pages[slug] || '',
-            history: [],
-            historyIndex: -1,
-
-          }));
+          state.pages = sortedSlugs.map((slug, idx) => {
+            const entry = data.pages[slug];
+            const isObj = entry && typeof entry === 'object' && entry.code;
+            return {
+              id: 'page_' + Date.now() + '_' + idx,
+              name: slug,
+              code: isObj ? entry.code : (entry || ''),
+              history: isObj ? (entry.history || []) : [],
+              historyIndex: isObj ? (entry.historyIndex !== undefined ? entry.historyIndex : -1) : -1,
+            };
+          });
 
           const indexPage = state.pages.find(p => p.name === 'index') || state.pages[0];
           state.currentPageId = indexPage.id;
           state.currentCode = indexPage.code;
         } else {
-          // Single-page fallback
-          const code = data.generated_code || '';
+          // Single-page fallback — check pages_json first (new format with history)
+          const pagesJson = data.pages_json;
+          const indexEntry = pagesJson && pagesJson['index'];
+          const isIndexObj = indexEntry && typeof indexEntry === 'object' && indexEntry.code;
+          const code = isIndexObj ? indexEntry.code : (data.generated_code || '');
           if (!code) return false;
 
           const pageId = 'page_' + Date.now();
@@ -3914,17 +4225,21 @@ finishCanvasGeneration(['index']);
             id: pageId,
             name: 'index',
             code: code,
-            history: [],
-            historyIndex: -1,
-
+            history: isIndexObj ? (indexEntry.history || []) : [],
+            historyIndex: isIndexObj ? (indexEntry.historyIndex !== undefined ? indexEntry.historyIndex : -1) : -1,
           }];
           state.currentPageId = pageId;
           state.currentCode = code;
         }
         el.projectTitle.textContent = state.projectName;
 
-        // Save to localStorage so next visit is instant
-        Project.save();
+        // Restore chat directly into memory from server data
+        const chatData = (data.pages && data.pages['_chat']) || (data.pages_json && data.pages_json['_chat']);
+        if (chatData && Array.isArray(chatData) && chatData.length > 0) {
+          try {
+            localStorage.setItem('nebulux_chat_' + _userNamespace() + '_' + state.projectId, JSON.stringify(chatData));
+          } catch(_) {}
+        }
 
         log('project_loaded', { projectId: state.projectId, source: 'api', pages: 1 });
         return true;
@@ -3949,6 +4264,36 @@ finishCanvasGeneration(['index']);
 
   sidebarCloseBtn?.addEventListener('click', () => setSidebarOpen(false));
   sidebarOpenBtn?.addEventListener('click', () => setSidebarOpen(sidebar?.classList.contains('collapsed')));
+
+  // Mobile swipe to open/close sidebar
+  if ('ontouchstart' in window && sidebar) {
+    let _swipeStartY = 0;
+    let _swipeStartX = 0;
+    sidebar.addEventListener('touchstart', e => {
+      _swipeStartY = e.touches[0].clientY;
+      _swipeStartX = e.touches[0].clientX;
+    }, { passive: true });
+    sidebar.addEventListener('touchend', e => {
+      const dy = e.changedTouches[0].clientY - _swipeStartY;
+      const dx = Math.abs(e.changedTouches[0].clientX - _swipeStartX);
+      if (Math.abs(dy) > 60 && dx < 60) {
+        if (dy > 0) setSidebarOpen(false); // swipe down → close
+      }
+    }, { passive: true });
+    // Swipe up from bottom of screen to open
+    document.addEventListener('touchstart', e => {
+      _swipeStartY = e.touches[0].clientY;
+      _swipeStartX = e.touches[0].clientX;
+    }, { passive: true });
+    document.addEventListener('touchend', e => {
+      const dy = e.changedTouches[0].clientY - _swipeStartY;
+      const dx = Math.abs(e.changedTouches[0].clientX - _swipeStartX);
+      const fromBottom = window.innerHeight - _swipeStartY < 80;
+      if (dy < -60 && dx < 60 && fromBottom && sidebar.classList.contains('collapsed')) {
+        setSidebarOpen(true); // swipe up from bottom edge → open
+      }
+    }, { passive: true });
+  }
 
   $$('.sidebar-tab').forEach(tab => {
     tab.addEventListener('click', () => {
@@ -3993,6 +4338,101 @@ finishCanvasGeneration(['index']);
      ELEMENT EDITOR EVENTS
   ============================================================ */
   el.editorSubmit.addEventListener('click', sendElementEdit);
+
+  // Inline text edit button
+  el.editorEditText.addEventListener('click', () => {
+    const doc = el.previewFrame.contentDocument;
+    if (!doc || !state.selectedElement) return;
+    const target = doc.querySelector('[data-nbx-id="' + state.selectedElement.nbxId + '"]');
+    if (!target) return;
+    target.contentEditable = 'true';
+    target.focus();
+    target.style.outline = '2px dashed rgba(247,148,29,0.7)';
+    target.style.borderRadius = '3px';
+    el.elementEditor.classList.remove('visible');
+    el.selectionBanner.classList.remove('visible');
+    function onBlur() {
+      target.contentEditable = 'false';
+      target.style.outline = '';
+      target.style.borderRadius = '';
+      if (!state.currentCode) return;
+      try {
+        const parser = new DOMParser();
+        const d = parser.parseFromString(state.currentCode, 'text/html');
+        const found = d.querySelector('[data-nbx-id="' + state.selectedElement.nbxId + '"]');
+        if (found) {
+          found.innerHTML = target.innerHTML;
+          const newCode = '<!DOCTYPE html>\n' + d.documentElement.outerHTML;
+          commitCurrentCode(newCode);
+          Project.save();
+          addToHistory(newCode, 'Text edited');
+        }
+      } catch(err) { console.warn('[nebulux] text edit failed:', err); }
+      target.removeEventListener('blur', onBlur);
+    }
+    target.addEventListener('blur', onBlur);
+  });
+
+  // Inline image replace button
+  el.editorReplaceImage.addEventListener('click', () => {
+    const doc = el.previewFrame.contentDocument;
+    if (!doc || !state.selectedElement) return;
+    const target = doc.querySelector('[data-nbx-id="' + state.selectedElement.nbxId + '"]');
+    if (!target || target.tagName !== 'IMG') return;
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.style.cssText = 'display:none';
+    document.body.appendChild(input);
+    input.click();
+    input.addEventListener('change', () => {
+      const file = input.files[0];
+      if (!file) { input.remove(); return; }
+      const reader = new FileReader();
+      reader.onload = async (ev) => {
+        const dataUrl = ev.target.result;
+        target.src = dataUrl; // show immediately
+        input.remove();
+
+        // Upload to server for a permanent URL
+        let finalSrc = dataUrl;
+        try {
+          const formData = new FormData();
+          formData.append('image', file);
+          const res = await Auth.apiFetch(CONFIG.apiBaseUrl + '/upload-image/', {
+            method: 'POST',
+            body: formData,
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.url) {
+              finalSrc = data.url;
+              target.src = finalSrc;
+            }
+          }
+        } catch(uploadErr) {
+          console.warn('[nebulux] image upload failed, using base64:', uploadErr);
+        }
+
+        if (!state.currentCode) return;
+        try {
+          const parser = new DOMParser();
+          const d = parser.parseFromString(state.currentCode, 'text/html');
+          const found = d.querySelector('[data-nbx-id="' + state.selectedElement.nbxId + '"]');
+          if (found) {
+            found.setAttribute('src', finalSrc);
+            const newCode = '<!DOCTYPE html>\n' + d.documentElement.outerHTML;
+            commitCurrentCode(newCode);
+            Project.save();
+            addToHistory(newCode, 'Image replaced');
+          }
+        } catch(err) { console.warn('[nebulux] image replace failed:', err); }
+      };
+      reader.readAsDataURL(file);
+    });
+    el.elementEditor.classList.remove('visible');
+    el.selectionBanner.classList.remove('visible');
+  });
   el.editorInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); sendElementEdit(); } });
 
   el.editorDelete.addEventListener('click', () => {
@@ -4026,7 +4466,7 @@ finishCanvasGeneration(['index']);
   });
   el.sendBtn.addEventListener('click', sendMessage);
   el.chatInput.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+    if (e.key === 'Enter' && !e.shiftKey && !('ontouchstart' in window)) { e.preventDefault(); sendMessage(); }
   });
 
   /* ============================================================
@@ -5004,9 +5444,9 @@ finishCanvasGeneration(['index']);
     const _hasProject = !!_urlParams.get('project');
     const _hasPrompt = !!_urlParams.get('prompt');
 
-    // Restore chat here so Auth is ready and _userNamespace() returns userId not deviceId
-    Chat.restoreFromStorage();
+    // Load project FIRST so state.projectId is set, then restore chat with correct key
     const loaded = await Project.load();
+    Chat.restoreFromStorage();
 
     if (loaded && state.currentCode) {
       // ── Project loaded successfully — just display it ────────────────────
@@ -5031,12 +5471,60 @@ finishCanvasGeneration(['index']);
 
     } else if (_hasProject) {
       // ── ?project= in URL but load failed / code missing ──────────────────
-      // This happens on: hard-refresh after localStorage was cleared, or the
-      // project data was evicted. Show an error — DO NOT re-generate.
+      // localStorage was cleared or evicted. Try fetching from server first.
       el.projectTitle.textContent = state.projectName || 'Project';
       updatePageUI();
       try { localStorage.removeItem('nebulux_prompt_' + _userNamespace()); } catch (_) { }
-      addMessage('ai', '⚠ Could not load this project — your browser storage may have been cleared. If you have an internet connection, try refreshing the page. If the problem persists, you can re-create it from your original prompt.');
+
+      const _projectApiId = /^\d+$/.test(String(state.projectId)) ? state.projectId : null;
+      console.log('[Nebulux] restore: projectId=', state.projectId, 'apiId=', _projectApiId);
+      if (_projectApiId) {
+        addMessage('ai', '⏳ Restoring your project from the server...');
+        (window.Auth && typeof Auth.authFetch === 'function'
+          ? Auth.authFetch('/api/websites/' + _projectApiId + '/')
+          : fetch('/api/websites/' + _projectApiId + '/'))
+        .then(r => {
+          console.log('[Nebulux] project fetch status:', r.status, 'id:', _projectApiId);
+          return r.ok ? r.json() : Promise.reject('http_' + r.status);
+        })
+        .then(data => {
+          console.log('[Nebulux] project fetch data keys:', Object.keys(data));
+          const code = data.generated_code || (data.pages_json && Object.values(JSON.parse(typeof data.pages_json === 'string' ? data.pages_json : JSON.stringify(data.pages_json)))[0]);
+          console.log('[Nebulux] code length:', code ? code.length : 0);
+          if (!code) throw new Error('empty');
+          // Restore into state
+          state.currentCode = code;
+          if (data.pages_json) {
+            try {
+              state.pages = typeof data.pages_json === 'string' ? JSON.parse(data.pages_json) : data.pages_json;
+            } catch(_) {}
+          }
+          if (data.title) {
+            state.projectName = data.title;
+            el.projectTitle.textContent = data.title;
+          }
+          // Save back to localStorage so next load is instant
+          const _ns = _userNamespace();
+          const _storeKey = 'nebulux_project_' + _ns + '_' + state.projectId;
+          try {
+            localStorage.setItem(_storeKey, JSON.stringify({
+              code, pages: state.pages, name: state.projectName,
+              lastGenerationId: _projectApiId, ts: Date.now()
+            }));
+          } catch(_) {}
+          updatePageUI();
+          updatePreview(state.currentCode);
+          // Remove the loading message and confirm
+          const msgs = document.querySelectorAll('.msg-bubble');
+          if (msgs.length) msgs[msgs.length - 1].closest('.msg')?.remove();
+          addMessage('ai', '✅ Project restored successfully.');
+        })
+        .catch(() => {
+          addMessage('ai', '⚠ Could not load this project — your browser storage may have been cleared. If you have an internet connection, try refreshing the page. If the problem persists, you can re-create it from your original prompt.');
+        });
+      } else {
+        addMessage('ai', '⚠ Could not load this project — your browser storage may have been cleared. If you have an internet connection, try refreshing the page. If the problem persists, you can re-create it from your original prompt.');
+      }
 
     } else {
       // ── No project yet — this is a genuine first-time generation ─────────
@@ -5063,11 +5551,11 @@ finishCanvasGeneration(['index']);
   // and watch for future ones
   new MutationObserver(mutations => {
     mutations.forEach(m => m.addedNodes.forEach(node => {
-      if (node.nodeType === 1 && node.classList.contains('message')) _attachEditBtn(node);
+      
     }));
   }).observe(el.messages, { childList: true });
 
-  el.messages.querySelectorAll('.message.user').forEach(_attachEditBtn);
+  
 
   // Wait for auth.js to finish its async token refresh before running init().
   // Without this, Auth.isAuthenticated() is always false on first load.

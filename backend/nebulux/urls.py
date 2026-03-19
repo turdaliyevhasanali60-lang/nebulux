@@ -18,6 +18,7 @@ urlpatterns = [
 
     # ── Payments / Stripe API
     path("api/payments/", include("payments.urls")),
+    path("api/publishing/", include("publishing.urls")),
 
     # ── Frontend pages (Django serves them directly — no CORS needed in prod)
     path("",           TemplateView.as_view(template_name="index.html"),    name="index"),

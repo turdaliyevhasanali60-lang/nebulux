@@ -48,12 +48,14 @@ LOCAL_APPS = [
     "accounts.apps.AccountsConfig",
     "generator.apps.GeneratorConfig",
     "payments.apps.PaymentsConfig",
+    "publishing",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
 # ─── Middleware ────────────────────────────────────────────────────────────
 MIDDLEWARE = [
+    "publishing.middleware.SubdomainMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",      # serve static files in production
     "corsheaders.middleware.CorsMiddleware",            # must be before CommonMiddleware
@@ -375,6 +377,31 @@ STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
 MEDIA_URL  = "/media/"
 MEDIA_ROOT = BASE_DIR.parent / "media"
+
+# ─── Cloudflare R2 (user-uploaded images) ────────────────────────────────────
+_R2_CONFIGURED = all([
+    config("R2_ACCESS_KEY_ID", default=""),
+    config("R2_SECRET_ACCESS_KEY", default=""),
+    config("R2_BUCKET_NAME", default=""),
+    config("R2_ACCOUNT_ID", default=""),
+])
+
+if _R2_CONFIGURED:
+    R2_ACCOUNT_ID      = config("R2_ACCOUNT_ID")
+    R2_ACCESS_KEY_ID   = config("R2_ACCESS_KEY_ID")
+    R2_SECRET_ACCESS_KEY = config("R2_SECRET_ACCESS_KEY")
+    R2_BUCKET_NAME     = config("R2_BUCKET_NAME")
+    R2_PUBLIC_URL      = config("R2_PUBLIC_URL", default="")
+
+    AWS_ACCESS_KEY_ID       = R2_ACCESS_KEY_ID
+    AWS_SECRET_ACCESS_KEY   = R2_SECRET_ACCESS_KEY
+    AWS_STORAGE_BUCKET_NAME = R2_BUCKET_NAME
+    AWS_S3_ENDPOINT_URL     = f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+    AWS_S3_REGION_NAME      = "auto"
+    AWS_DEFAULT_ACL         = None          # R2 uses bucket policy, not ACLs
+    AWS_S3_FILE_OVERWRITE   = False
+    AWS_QUERYSTRING_AUTH    = False         # public bucket — no signed URLs needed
+    AWS_S3_CUSTOM_DOMAIN    = None          # we build URLs manually from R2_PUBLIC_URL
 
 # ─── Misc ─────────────────────────────────────────────────────────────────
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

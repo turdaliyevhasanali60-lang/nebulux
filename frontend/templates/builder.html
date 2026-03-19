@@ -6,7 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>NEBULUX Builder</title>
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="{% static 'css/builder.css?v=13' %}">
+<link rel="stylesheet" href="{% static 'css/builder.css?v=16' %}">
 <style>
   /* Prevent text selection when clicking the page switcher dropdown */
   .page-selector,
@@ -72,6 +72,10 @@
       </button>
     </div>
     <button class="save-btn" id="saveBtn">Save</button>
+    <button class="publish-btn" id="publishBtn" title="Publish site">
+      <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M12 2l9 7-9 7-9-7 9-7z"/><path d="M3 17l9 5 9-5"/></svg>
+      Publish
+    </button>
   </div>
 </header>
 
@@ -198,6 +202,64 @@
     </div>
   </aside>
 </div>
+
+<!-- Publish Panel -->
+<div class="publish-panel" id="publishPanel">
+  <div class="publish-panel-header">
+    <span class="publish-panel-title">
+      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M12 2l9 7-9 7-9-7 9-7z"/><path d="M3 17l9 5 9-5"/></svg>
+      Publish
+    </span>
+    <button class="publish-panel-close" id="publishPanelClose">
+      <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M1 1l8 8M9 1l-8 8"/></svg>
+    </button>
+  </div>
+
+  <div class="publish-panel-body">
+
+    <!-- Unpublished changes banner -->
+    <div class="publish-changes-banner" id="publishChangesBanner" style="display:none">
+      <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+      You have unpublished changes.
+      <button class="publish-changes-btn" id="republishBtn">Publish update</button>
+    </div>
+
+    <!-- Already published state -->
+    <div id="publishedState" style="display:none">
+      <div class="publish-live-row">
+        <span class="publish-live-dot"></span>
+        <span class="publish-live-label">Live</span>
+        <a class="publish-live-url" id="publishLiveUrl" href="#" target="_blank" rel="noopener"></a>
+      </div>
+      <div class="publish-actions-row">
+        <button class="publish-copy-btn" id="publishCopyBtn">
+          <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+          Copy link
+        </button>
+        <button class="publish-unpublish-btn" id="unpublishBtn">Unpublish</button>
+      </div>
+    </div>
+
+    <!-- Not yet published state -->
+    <div id="unpublishedState">
+      <p class="publish-hint">Choose a subdomain for your site:</p>
+      <div class="publish-subdomain-row">
+        <div class="publish-subdomain-input-wrap">
+          <input class="publish-subdomain-input" id="publishSubdomainInput" type="text"
+            placeholder="your-site-name" maxlength="50" autocomplete="off" spellcheck="false">
+          <span class="publish-subdomain-suffix">.nebulux.one</span>
+        </div>
+        <span class="publish-subdomain-status" id="subdomainStatus"></span>
+      </div>
+      <button class="publish-go-btn" id="publishGoBtn" disabled>
+        <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2l9 7-9 7-9-7 9-7z"/><path d="M3 17l9 5 9-5"/></svg>
+        Publish site
+      </button>
+    </div>
+
+  </div>
+</div>
+<div class="publish-panel-overlay" id="publishPanelOverlay"></div>
 
 <!-- Export Modal -->
 <div class="export-modal" id="exportModal">

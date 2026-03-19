@@ -255,14 +255,14 @@
   /* ─── authFetch ──────────────────────────────────── */
   async function authFetch(url, opts = {}) {
     if (!S.access) await silentRefresh();
-    const go = tok => fetch(url, {
-      ...opts,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(opts.headers || {}),
-        ...(tok ? { Authorization: `Bearer ${tok}` } : {}),
-      },
-    });
+    const go = tok => {
+      // FormData must NOT have Content-Type set — browser adds multipart/form-data + boundary
+      const isFormData = opts.body instanceof FormData;
+      const headers = isFormData
+        ? { ...(tok ? { Authorization: `Bearer ${tok}` } : {}) }
+        : { 'Content-Type': 'application/json', ...(opts.headers || {}), ...(tok ? { Authorization: `Bearer ${tok}` } : {}) };
+      return fetch(url, { ...opts, headers });
+    };
     let res = await go(S.access);
     if (res.status === 401) {
       const ok = await silentRefresh();
