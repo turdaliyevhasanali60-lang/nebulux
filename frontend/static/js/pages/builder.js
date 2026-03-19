@@ -4182,8 +4182,11 @@ finishCanvasGeneration(['index']);
           state.currentPageId = indexPage.id;
           state.currentCode = indexPage.code;
         } else {
-          // Single-page fallback
-          const code = data.generated_code || '';
+          // Single-page fallback — check pages_json first (new format with history)
+          const pagesJson = data.pages_json;
+          const indexEntry = pagesJson && pagesJson['index'];
+          const isIndexObj = indexEntry && typeof indexEntry === 'object' && indexEntry.code;
+          const code = isIndexObj ? indexEntry.code : (data.generated_code || '');
           if (!code) return false;
 
           const pageId = 'page_' + Date.now();
@@ -4191,8 +4194,8 @@ finishCanvasGeneration(['index']);
             id: pageId,
             name: 'index',
             code: code,
-            history: [],
-            historyIndex: -1,
+            history: isIndexObj ? (indexEntry.history || []) : [],
+            historyIndex: isIndexObj ? (indexEntry.historyIndex !== undefined ? indexEntry.historyIndex : -1) : -1,
           }];
           state.currentPageId = pageId;
           state.currentCode = code;
