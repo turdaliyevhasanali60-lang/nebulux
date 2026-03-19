@@ -623,6 +623,12 @@ INFERENCE RULES:
 - Only add to missing_fields if there are truly zero hints from prompt + files
 - If no prompt text is given but an image is attached, infer site_type from the image content
 
+BRAND RESEARCH — CRITICAL:
+- If the prompt mentions a real, known brand, company, university, or institution (e.g. "Harvard", "Nike", "Apple", "Ferrari", "Coca-Cola"), you MUST identify their real brand colors and visual identity.
+- Extract the brand's PRIMARY color as primary_color (e.g. Harvard = #A41E34, Nike = #000000, Ferrari = #DC0000).
+- In design_notes, describe their visual aesthetic: typography style, layout preferences, brand personality (e.g. "Harvard: academic, prestigious, crimson red #A41E34, clean serif-influenced design, white backgrounds").
+- This ensures the generated site LOOKS like it belongs to that brand.
+
 Required fields (add to missing_fields ONLY if truly absent and cannot be inferred):
   - site_type
   - sections (at least one)
