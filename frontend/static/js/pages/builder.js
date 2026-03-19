@@ -132,6 +132,8 @@
     renderError: $('#renderError'),
     elementEditor: $('#elementEditor'),
     editorInput: $('#editorInput'),
+    editorEditText: $('#editorEditText'),
+    editorReplaceImage: $('#editorReplaceImage'),
     editorSubmit: $('#editorSubmit'),
     editorDelete: $('#editorDelete'),
     editorClose: $('#editorClose'),
@@ -1083,6 +1085,32 @@ finishCanvasGeneration(['index']);
       const url = e.data.url || 'unknown';
       console.debug('[nebulux] Navigation blocked in preview:', url);
     }
+
+    if (e.data.type === 'nebulux:edit-text' || e.data.type === 'nebulux:edit-image') {
+      const { selector, text, src: imgSrc } = e.data;
+      if (!state.currentCode || !selector) return;
+      try {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(state.currentCode, 'text/html');
+        const el = doc.querySelector(selector);
+        if (!el) return;
+        if (e.data.type === 'nebulux:edit-text') {
+          el.innerHTML = text;
+        } else {
+          el.setAttribute('src', imgSrc);
+        }
+        const newCode = '<!DOCTYPE html>\n' + doc.documentElement.outerHTML;
+        commitCurrentCode(newCode);
+        // Update current page in multi-page state
+        const slug = getCurrentPage()?.name || 'index';
+        const pageObj = state.pages.find(p => p.slug === slug);
+        if (pageObj) pageObj.code = newCode;
+        Project.save();
+        addToHistory(newCode, 'Edited');
+      } catch(err) {
+        console.warn('[nebulux] inline edit failed:', err);
+      }
+    }
   });
 
   /* ============================================================
@@ -1276,6 +1304,68 @@ finishCanvasGeneration(['index']);
             e.stopPropagation();
           }
         }, true);
+
+        /* ── Inline editing ───────────────────────────────────────────────── */
+        function _getSelector(el) {
+          if (el.id) return '#' + el.id;
+          const tag = el.tagName.toLowerCase();
+          const parent = el.parentElement;
+          if (!parent) return tag;
+          const siblings = Array.from(parent.children).filter(c => c.tagName === el.tagName);
+          const idx = siblings.indexOf(el);
+          return _getSelector(parent) + ' > ' + tag + (siblings.length > 1 ? ':nth-of-type(' + (idx + 1) + ')' : '');
+        }
+
+        document.addEventListener('dblclick', function(e) {
+          const img = e.target.closest('img');
+          if (img) {
+            e.preventDefault();
+            e.stopPropagation();
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = 'image/*';
+            input.style.cssText = 'display:none';
+            document.body.appendChild(input);
+            input.click();
+            input.addEventListener('change', function() {
+              const file = input.files[0];
+              if (!file) { input.remove(); return; }
+              const reader = new FileReader();
+              reader.onload = function(ev) {
+                const dataUrl = ev.target.result;
+                img.src = dataUrl;
+                try { parent.postMessage({ type: 'nebulux:edit-image', selector: _getSelector(img), src: dataUrl }, '*'); } catch(e2) {}
+                input.remove();
+              };
+              reader.readAsDataURL(file);
+            });
+            return;
+          }
+
+          const textTags = ['P','H1','H2','H3','H4','H5','H6','SPAN','A','LI','TD','TH','BUTTON','LABEL','DIV'];
+          const el2 = e.target.closest(textTags.map(t => t.toLowerCase()).join(','));
+          if (el2 && !el2.querySelector('img') && el2.children.length === 0 || (el2 && el2.innerText.trim())) {
+            e.preventDefault();
+            e.stopPropagation();
+            el2.contentEditable = 'true';
+            el2.focus();
+            el2.style.outline = '2px dashed rgba(247,148,29,0.7)';
+            el2.style.borderRadius = '3px';
+            function onBlur() {
+              el2.contentEditable = 'false';
+              el2.style.outline = '';
+              el2.style.borderRadius = '';
+              try { parent.postMessage({ type: 'nebulux:edit-text', selector: _getSelector(el2), text: el2.innerHTML }, '*'); } catch(e2) {}
+              el2.removeEventListener('blur', onBlur);
+              el2.removeEventListener('keydown', onKey);
+            }
+            function onKey(e3) { if (e3.key === 'Escape') { el2.blur(); } }
+            el2.addEventListener('blur', onBlur);
+            el2.addEventListener('keydown', onKey);
+          }
+        }, true);
+        /* ── end inline editing ─────────────────────────────────────────── */
+
       })();
       <\/script>
     `;
@@ -1413,6 +1503,11 @@ finishCanvasGeneration(['index']);
     el.elementEditor.classList.add('visible');
     el.editorInput.value = '';
     el.editorInput.focus();
+    // Show relevant inline edit buttons
+    const isImg = tag === 'img';
+    const isText = ['p','h1','h2','h3','h4','h5','h6','span','a','li','td','th','button','label'].includes(tag);
+    el.editorEditText.style.display = isText ? '' : 'none';
+    el.editorReplaceImage.style.display = isImg ? '' : 'none';
     log('element_selected', { tag, path: state.selectedElement.path, nbxId });
   }
 
@@ -4171,6 +4266,88 @@ finishCanvasGeneration(['index']);
      ELEMENT EDITOR EVENTS
   ============================================================ */
   el.editorSubmit.addEventListener('click', sendElementEdit);
+
+  // Inline text edit button
+  el.editorEditText.addEventListener('click', () => {
+    const doc = el.previewFrame.contentDocument;
+    if (!doc || !state.selectedElement) return;
+    const target = doc.querySelector('[data-nbx-id="' + state.selectedElement.nbxId + '"]');
+    if (!target) return;
+    target.contentEditable = 'true';
+    target.focus();
+    target.style.outline = '2px dashed rgba(247,148,29,0.7)';
+    target.style.borderRadius = '3px';
+    el.elementEditor.classList.remove('visible');
+    el.selectionBanner.classList.remove('visible');
+    function onBlur() {
+      target.contentEditable = 'false';
+      target.style.outline = '';
+      target.style.borderRadius = '';
+      if (!state.currentCode) return;
+      try {
+        const parser = new DOMParser();
+        const d = parser.parseFromString(state.currentCode, 'text/html');
+        const found = d.querySelector('[data-nbx-id="' + state.selectedElement.nbxId + '"]');
+        if (found) {
+          found.innerHTML = target.innerHTML;
+          const newCode = '<!DOCTYPE html>
+' + d.documentElement.outerHTML;
+          commitCurrentCode(newCode);
+          const slug = getCurrentPage()?.name || 'index';
+          const pageObj = state.pages.find(p => p.slug === slug);
+          if (pageObj) pageObj.code = newCode;
+          Project.save();
+          addToHistory(newCode, 'Text edited');
+        }
+      } catch(err) { console.warn('[nebulux] text edit failed:', err); }
+      target.removeEventListener('blur', onBlur);
+    }
+    target.addEventListener('blur', onBlur);
+  });
+
+  // Inline image replace button
+  el.editorReplaceImage.addEventListener('click', () => {
+    const doc = el.previewFrame.contentDocument;
+    if (!doc || !state.selectedElement) return;
+    const target = doc.querySelector('[data-nbx-id="' + state.selectedElement.nbxId + '"]');
+    if (!target || target.tagName !== 'IMG') return;
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.style.cssText = 'display:none';
+    document.body.appendChild(input);
+    input.click();
+    input.addEventListener('change', () => {
+      const file = input.files[0];
+      if (!file) { input.remove(); return; }
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const dataUrl = ev.target.result;
+        target.src = dataUrl;
+        if (!state.currentCode) { input.remove(); return; }
+        try {
+          const parser = new DOMParser();
+          const d = parser.parseFromString(state.currentCode, 'text/html');
+          const found = d.querySelector('[data-nbx-id="' + state.selectedElement.nbxId + '"]');
+          if (found) {
+            found.setAttribute('src', dataUrl);
+            const newCode = '<!DOCTYPE html>
+' + d.documentElement.outerHTML;
+            commitCurrentCode(newCode);
+            const slug = getCurrentPage()?.name || 'index';
+            const pageObj = state.pages.find(p => p.slug === slug);
+            if (pageObj) pageObj.code = newCode;
+            Project.save();
+            addToHistory(newCode, 'Image replaced');
+          }
+        } catch(err) { console.warn('[nebulux] image replace failed:', err); }
+        input.remove();
+      };
+      reader.readAsDataURL(file);
+    });
+    el.elementEditor.classList.remove('visible');
+    el.selectionBanner.classList.remove('visible');
+  });
   el.editorInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); sendElementEdit(); } });
 
   el.editorDelete.addEventListener('click', () => {
