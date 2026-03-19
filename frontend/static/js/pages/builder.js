@@ -218,7 +218,7 @@
       _body.className = 'atw-body';
 
       _toggle.addEventListener('click', () => {
-        _setOpen(_toggle.getAttribute('aria-expanded') !== 'true'); console.log('[atw] toggle clicked, expanded=', _toggle.getAttribute('aria-expanded'));
+        _setOpen(_toggle.getAttribute('aria-expanded') !== 'true');
       });
 
       _container.appendChild(_toggle);
@@ -230,7 +230,7 @@
       _scrollDown();
     }
 
-    function _setOpen(open) { console.log("[atw] _setOpen called, open=", open, "_toggle=", !!_toggle, "_body=", !!_body);
+    function _setOpen(open) {
       if (!_toggle || !_body) return;
       _toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
       _toggle.querySelector('.atw-chevron')?.remove();
@@ -398,7 +398,6 @@
       if (_labelEl) _labelEl.textContent = `Thought for ${secs}s`;
       if (_timerEl) _timerEl.textContent = '';
       _toggle.classList.add('atw-toggle--done');
-      _setOpen(false);
 
     }
 
@@ -1850,6 +1849,9 @@ finishCanvasGeneration(['index']);
                   const slug = pageMarker[1];
                   GenStage.setWriting(slug);
                   AIThinkChat.addWritingRow(slug);
+                } else if (fullCode === '' && text.trim()) {
+                  // No page marker but code is arriving — auto-create writing panel
+                  AIThinkChat.addWritingRow('index');
                 }
                 fullCode += text;
                 AIThinkChat.appendCodeChunk(text);
@@ -1999,7 +2001,7 @@ finishCanvasGeneration(['index']);
         padding: 0; width: 100%; text-align: left; user-select: none;
       }
       .atw-toggle:hover { color: rgba(200,205,255,.75); }
-      .atw-toggle--done { color: rgba(200,205,255,.45); }
+      .atw-toggle--done { color: rgba(200,205,255,.65); font-style: italic; }
       .atw-chevron { flex-shrink: 0; }
       .atw-spin-dot {
         width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
