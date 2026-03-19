@@ -648,8 +648,9 @@ THINKING REQUIREMENT — MANDATORY FIRST STEP
 Before writing ANY HTML, open a <think> block and fill in EVERY field below.
 Be specific to THIS site — no generic answers. 200–300 words minimum.
 Then close </think> and start HTML immediately.
-CRITICAL: The <think> block must contain ONLY planning text — NO HTML, NO CSS, NO code of any kind.
-Writing code inside <think> wastes time and gets discarded. Plan fast, then code.
+CRITICAL: The <think> block must contain ONLY short planning notes — NO HTML, NO CSS, NO code of any kind.
+DO NOT write any code drafts, snippets, or structure inside <think>. Not even a single HTML tag or CSS rule.
+Close </think> immediately after DIFFERENTIATION. Then write ---PAGE:index--- and start the HTML.
 
 Format (copy this structure exactly):
 <think>
