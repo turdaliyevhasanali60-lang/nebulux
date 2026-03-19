@@ -389,7 +389,6 @@
       if (_isDone) return;
       _isDone = true;
       cancelAnimationFrame(_timerRaf);
-      _closeCodePanel();
 
       const secs = Math.floor((Date.now() - _startTime) / 1000);
 
