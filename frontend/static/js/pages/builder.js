@@ -3229,6 +3229,34 @@ finishCanvasGeneration(['index']);
       } catch (e) {
         console.warn('[Nebulux] Chat save error:', e);
       }
+      this._flushToServer();
+    },
+
+    _flushToServer() {
+      if (!state.lastGenerationId) return;
+      if (!window.Auth || !Auth.isAuthenticated || !Auth.isAuthenticated()) return;
+      try {
+        const toSave = _chatMessages.filter(m =>
+          (!m.text || !m.text.startsWith('Sign in to start'))
+          && m.text !== '[attachment]'
+        ).map(m => ({ role: m.role, text: m.text, ts: m.ts })); // strip file blobs
+        const pagesPayload = {};
+        state.pages.forEach(p => {
+          if (p.code) pagesPayload[p.name] = {
+            code: p.code,
+            history: p.history || [],
+            historyIndex: p.historyIndex !== undefined ? p.historyIndex : -1,
+          };
+        });
+        pagesPayload['_chat'] = toSave;
+        Auth.apiFetch(CONFIG.apiBaseUrl + '/websites/' + state.lastGenerationId + '/', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pages_json: pagesPayload }),
+        }).catch(e => console.warn('[Nebulux] Chat server save failed:', e));
+      } catch(e) {
+        console.warn('[Nebulux] Chat server save error:', e);
+      }
     },
 
     trimFromIndex(domIndex) {
@@ -4181,6 +4209,12 @@ finishCanvasGeneration(['index']);
           const indexPage = state.pages.find(p => p.name === 'index') || state.pages[0];
           state.currentPageId = indexPage.id;
           state.currentCode = indexPage.code;
+          // Restore chat from server
+          if (data.pages && data.pages['_chat'] && Array.isArray(data.pages['_chat'])) {
+            try {
+              localStorage.setItem('nebulux_chat_' + _userNamespace() + '_' + state.projectId, JSON.stringify(data.pages['_chat']));
+            } catch(_) {}
+          }
         } else {
           // Single-page fallback — check pages_json first (new format with history)
           const pagesJson = data.pages_json;
@@ -4199,6 +4233,13 @@ finishCanvasGeneration(['index']);
           }];
           state.currentPageId = pageId;
           state.currentCode = code;
+          // Restore chat from server (single-page)
+          const chatEntry = pagesJson && pagesJson['_chat'];
+          if (chatEntry && Array.isArray(chatEntry)) {
+            try {
+              localStorage.setItem('nebulux_chat_' + _userNamespace() + '_' + state.projectId, JSON.stringify(chatEntry));
+            } catch(_) {}
+          }
         }
         el.projectTitle.textContent = state.projectName;
 
