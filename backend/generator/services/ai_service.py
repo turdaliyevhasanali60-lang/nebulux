@@ -2124,27 +2124,78 @@ def generate_website_stream(
         logger.exception("generate_website_stream failed")
         raise AIServiceError(f"generate_website_stream error: {exc}") from exc
 
-    # Google: stream directly without <think> state machine
+    # Google/OpenAI: stream with lightweight <think> tag detection
     if _google_direct:
         html_parts: list[str] = []
         tokens_used = 0
+        _gd_state = "before_think"  # before_think → in_think → after_think
+        _gd_hold = ""
+        _GDHOLD = 10
+        _gd_thinking_started = False
+
+        yield {"thinking_start": True}
+        _gd_thinking_started = True
+
         for item in stream_gen:
             if item.get("done"):
                 tokens_used = item.get("tokens_used", 0)
                 break
-            if item.get("thinking_start"):
-                yield {"thinking_start": True}
-                continue
+            # Forward native thinking events from _stream_google
             if item.get("thinking_chunk"):
                 yield {"thinking_chunk": item["thinking_chunk"]}
                 continue
             if item.get("thinking_end"):
-                yield {"thinking_end": True}
-                continue
+                continue  # we manage thinking_end ourselves below
             chunk = item.get("chunk", "")
-            if chunk:
+            if not chunk:
+                continue
+
+            # State machine to intercept <think>...</think> in chunk text
+            if _gd_state == "after_think":
                 html_parts.append(chunk)
                 yield {"chunk": chunk}
+                continue
+
+            working = _gd_hold + chunk
+            _gd_hold = ""
+
+            if _gd_state == "before_think":
+                lo = working.lower()
+                pos = lo.find("<think>")
+                if pos == -1:
+                    safe_len = max(0, len(working) - _GDHOLD)
+                    safe, _gd_hold = working[:safe_len], working[safe_len:]
+                    if safe:
+                        yield {"thinking_chunk": safe}
+                    continue
+                # Found <think> — discard preamble, enter think state
+                after_open = working[pos + len("<think>"):]
+                _gd_state = "in_think"
+                working = after_open
+
+            if _gd_state == "in_think":
+                lo = working.lower()
+                pos = lo.find("</think>")
+                if pos == -1:
+                    safe_len = max(0, len(working) - _GDHOLD)
+                    safe, _gd_hold = working[:safe_len], working[safe_len:]
+                    if safe:
+                        yield {"thinking_chunk": safe}
+                    continue
+                # Found </think>
+                tail_think = working[:pos]
+                if tail_think:
+                    yield {"thinking_chunk": tail_think}
+                yield {"thinking_end": True}
+                _gd_thinking_started = False
+                _gd_state = "after_think"
+                after_close = working[pos + len("</think>"):].lstrip("\n")
+                if after_close:
+                    html_parts.append(after_close)
+                    yield {"chunk": after_close}
+
+        if _gd_thinking_started:
+            yield {"thinking_end": True}
         full_code = _clean_html("".join(html_parts))
         full_code = _inject_attached_images(full_code, files)
         pages, navigation = _parse_multipage_output(full_code)

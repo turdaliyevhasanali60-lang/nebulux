@@ -5610,6 +5610,7 @@ finishCanvasGeneration(['index']);
 
   // Expose state to publish panel (which lives outside this closure)
   window._nebuluxGetGenId = function() { return state.lastGenerationId || null; };
+  window._nebuluxGetPages = function() { return state.pages || []; };
 
 })();
 
@@ -5689,6 +5690,16 @@ finishCanvasGeneration(['index']);
     return fetch(url, { headers: { 'Content-Type': 'application/json' }, ...opts });
   }
 
+  function _hasLocalChanges(publishedAt) {
+    // Check if any page was modified after the published_at timestamp
+    if (!publishedAt) return false;
+    const pubTime = new Date(publishedAt).getTime();
+    try {
+      const pages = window._nebuluxGetPages?.() || [];
+      return pages.some(p => p.timestamp && p.timestamp > pubTime);
+    } catch(e) { return false; }
+  }
+
   async function _loadStatus() {
     const genId = window._nebuluxGetGenId?.();
     if (!genId) {
@@ -5700,6 +5711,10 @@ finishCanvasGeneration(['index']);
       const data = await res.json();
       _currentStatus = data;
       if (data.is_published) {
+        // Also check client-side for local unsaved changes
+        if (!data.has_unpublished_changes) {
+          data.has_unpublished_changes = _hasLocalChanges(data.published_at);
+        }
         _showPublished(data);
       } else {
         _showUnpublished();
