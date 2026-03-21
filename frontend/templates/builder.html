@@ -103,14 +103,18 @@
         <span class="lo-mod-text">Applying changes…</span>
       </div>
     </div>
-    <!-- Generation stage: page skeleton cards shown during AI generation -->
+    <!-- Generation stage: Neural Core shown during AI generation -->
     <div class="gen-stage" id="genStage" hidden aria-busy="false">
-      <div class="gen-stage__shell" id="generationShell">
-        <div class="gen-stage__header">
-          <h2 class="gen-stage__title" id="genStageTitle">Generating your site…</h2>
-          <p class="gen-stage__subtitle" id="genStageSubtitle">Creating pages in the workspace</p>
+      <div class="neural-core-shell" id="generationShell">
+        <div class="nc-orb-wrapper">
+          <div class="nc-orb"></div>
+          <div class="nc-orb-blur"></div>
+          <img src="/static/img/logo.png" class="nc-logo" alt="Logo" style="position: absolute; width: 65px; height: 65px; object-fit: contain; z-index: 5; filter: drop-shadow(0 0 20px rgba(255,255,255,0.3)); animation: orbPulse 3s ease-in-out infinite alternate;" />
         </div>
-        <div class="gen-stage__panels" id="genPanels"></div>
+        <div class="nc-content">
+          <h2 class="nc-title" id="genStageTitle">Crafting structure...</h2>
+          <p class="nc-subtitle" id="genStageSubtitle">Creating pages in the workspace</p>
+        </div>
       </div>
     </div>
     <div class="device-frame desktop" id="deviceFrame">

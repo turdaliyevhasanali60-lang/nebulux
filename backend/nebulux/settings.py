@@ -307,10 +307,8 @@ GOOGLE_REDIRECT_URI  = config(
 AI_MODELS = {
     "spec":      "claude-haiku-3.5",   # keep Haiku for spec — cheap + accurate
     "generate":  "kimi-k2.5",
-    "edit":      "gemini-2.5-flash",
+    "edit":      "kimi-k2.5",
     "fast_edit": "claude-haiku-3.5",
-    # "generate": "kimi-k2.5",         # ready — just needs MOONSHOT_API_KEY funded
-    # "edit":     "kimi-k2.5",
 }
 
 # ─── AI Provider API Keys ────────────────────────────────────────────────

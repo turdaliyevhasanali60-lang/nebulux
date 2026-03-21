@@ -16,6 +16,7 @@
  */
 (function () {
   'use strict';
+  const noop = () => {};
 
   /* ============================================================
      CONFIG
@@ -108,9 +109,9 @@
             localStorage.setItem(newChatKey, oldChat);
           }
           return;
-        } catch (_) {}
+        } catch (_) { }
       }
-    } catch (_) {}
+    } catch (_) { }
   })();
 
   /* ============================================================
@@ -180,596 +181,447 @@
   ============================================================ */
   const AIThinkChat = (() => {
     let _container = null;
-    let _toggle = null;
-    let _body = null;
-    let _labelEl = null;
+    let _phraseSpan = null;
     let _timerEl = null;
     let _startTime = 0;
     let _timerRaf = null;
+    let _phraseInterval = null;
+    let _phraseIdx = 0;
     let _isDone = false;
-    let _typeQueue = [];   // [{el, text, pos}] — pending typewriter jobs
-    let _typeRaf = null; // requestAnimationFrame id for typewriter
+    let _reasoningBuffer = '';
 
-    const _PHASE_ACTIONS = {
-      analyzing: 'Analyzed user intent',
-      planning: 'Planned page structure',
-      designing: 'Designed UI & UX system',
-      coding: 'Writing HTML & CSS',
-    };
+    const _PHRASES = [
+      'Applying your changes...',
+      'Refining the code...',
+      'Updating the design...',
+      'Planning your layout...',
+      'Choosing typography...',
+      'Finding the right photos...',
+      'Designing the color palette...',
+      'Structuring sections...',
+      'Crafting animations...',
+      'Building responsive layouts...',
+      'Setting up navigation...'
+    ];
 
-    const _SVG_DOWN = `<svg class="atw-chevron" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>`;
-    const _SVG_RIGHT = `<svg class="atw-chevron" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M9 18l6-6-6-6"/></svg>`;
-
-    // ── Build widget ─────────────────────────────────────────────────────────
     function _build() {
       _container = document.createElement('div');
-      _container.className = 'message ai atw-container';
+      _container.className = 'message ai ai-thinking-minimal';
 
-      _toggle = document.createElement('button');
-      _toggle.className = 'atw-toggle';
-      _toggle.setAttribute('aria-expanded', 'true');
-      _toggle.innerHTML = `
-        ${_SVG_DOWN}
-        <span class="atw-spin-dot"></span>
-        <span class="atw-label">Thinking\u2026</span>
-        <span class="atw-timer">(0s)</span>
+      _container.innerHTML = `
+        <div class="message-content" style="display:flex; align-items:center; gap:8px; opacity:0.8;">
+          <div class="ai-think-dots" style="display:flex; gap:2px; color:#d4a85a;">
+            <span class="dot" style="animation: orbPulse 1.4s infinite ease-in-out both;">.</span>
+            <span class="dot" style="animation: orbPulse 1.4s infinite ease-in-out both; animation-delay:0.2s;">.</span>
+            <span class="dot" style="animation: orbPulse 1.4s infinite ease-in-out both; animation-delay:0.4s;">.</span>
+          </div>
+          <span class="ai-think-phrase" style="color:#a1a1aa; font-size:13px; transition: opacity 0.3s ease;">${_PHRASES[0]}</span>
+          <span class="ai-think-timer" style="color:#555; font-size:12px; margin-left:auto;">0s</span>
+        </div>
       `;
-      _labelEl = _toggle.querySelector('.atw-label');
-      _timerEl = _toggle.querySelector('.atw-timer');
 
-      _body = document.createElement('div');
-      _body.className = 'atw-body';
+      _phraseSpan = _container.querySelector('.ai-think-phrase');
+      _timerEl = _container.querySelector('.ai-think-timer');
 
-      _toggle.addEventListener('click', () => {
-        _setOpen(_toggle.getAttribute('aria-expanded') !== 'true');
-      });
-
-      _container.appendChild(_toggle);
-      _container.appendChild(_body);
-      el.messages.appendChild(_container);
+      const messages = document.getElementById('messages');
+      if (messages) messages.appendChild(_container);
 
       _startTime = Date.now();
+      _isDone = false;
       _tickTimer();
+      _startPhrases();
       _scrollDown();
-    }
-
-    function _setOpen(open) {
-      if (!_toggle || !_body) return;
-      _toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
-      _toggle.querySelector('.atw-chevron')?.remove();
-      _toggle.insertAdjacentHTML('afterbegin', open ? _SVG_DOWN : _SVG_RIGHT);
-      _body.classList.toggle('atw-body--hidden', !open);
     }
 
     function _tickTimer() {
       if (_isDone || !_timerEl) return;
       const secs = Math.floor((Date.now() - _startTime) / 1000);
-      _timerEl.textContent = `(${secs}s)`;
+      _timerEl.textContent = `${secs}s`;
       _timerRaf = requestAnimationFrame(() => setTimeout(_tickTimer, 500));
     }
 
-    function _ensure() { if (!_container) _build(); }
-
-    // ── Typewriter engine ─────────────────────────────────────────────────────
-    // Drains _typeQueue at ~30 chars/frame so text appears written in real-time.
-    function _typeTick() {
-      _typeRaf = null;
-      if (!_typeQueue.length) return;
-      const CHARS_PER_FRAME = 18;
-      const job = _typeQueue[0];
-      const end = Math.min(job.pos + CHARS_PER_FRAME, job.text.length);
-      job.el.textContent = job.text.slice(0, end);
-      job.pos = end;
-      if (job.pos >= job.text.length) {
-        _typeQueue.shift();
-        if (_body) _scrollDown();
-      }
-      if (_typeQueue.length) _typeRaf = requestAnimationFrame(_typeTick);
+    function _startPhrases() {
+      if (_phraseInterval) clearInterval(_phraseInterval);
+      _phraseIdx = 0;
+      _phraseInterval = setInterval(() => {
+        if (_isDone || !_phraseSpan) return;
+        _phraseIdx = (_phraseIdx + 1) % _PHRASES.length;
+        _phraseSpan.style.opacity = '0';
+        setTimeout(() => {
+          if (_isDone) return;
+          _phraseSpan.textContent = _PHRASES[_PHRASES.length > _phraseIdx ? _phraseIdx : 0];
+          _phraseSpan.style.opacity = '1';
+        }, 300);
+      }, 3000);
     }
 
-    function _enqueueType(el, text) {
-      _typeQueue.push({ el, text, pos: 0 });
-      if (!_typeRaf) _typeRaf = requestAnimationFrame(_typeTick);
-    }
-
-    // ── DOM helpers ───────────────────────────────────────────────────────────
-    function _addAction(text) {
-      if (!_body) return;
-      const row = document.createElement('div');
-      row.className = 'atw-action';
-      row.innerHTML = `<span class="atw-action-dot"></span><span class="atw-action-text">${text}</span>`;
-      _body.appendChild(row);
-      _scrollDown();
-    }
-
-    function _addProse(text) { /* disabled per user request to avoid text dumps */ }
-
-    // ── Collapsible code panel ────────────────────────────────────────────────
-    let _codePanel = null;  // current active panel
-    let _codePanelPre = null;
-    let _codePanelToggle = null;
-
-    function _startCodePanel(slug) {
-      if (!_body) return;
-      // Close previous panel if still open
-      if (_codePanel) _closeCodePanel();
-
-      const wrap = document.createElement('div');
-      wrap.className = 'atw-code-panel';
-
-      const hdr = document.createElement('button');
-      hdr.className = 'atw-code-hdr';
-      hdr.innerHTML = `
-        <svg class="atw-code-chevron" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
-        <span class="atw-code-dot"></span>
-        <span class="atw-code-label">Writing ${slug || 'page'}.html</span>
-        <span class="atw-code-lines">0 lines</span>
-      `;
-
-      const bodyWrap = document.createElement('div');
-      bodyWrap.className = 'atw-code-body atw-code-body--open';
-      const pre = document.createElement('pre');
-      pre.className = 'atw-code-pre';
-      bodyWrap.appendChild(pre);
-
-      hdr.addEventListener('click', () => {
-        const open = bodyWrap.classList.toggle('atw-code-body--open');
-        const chev = hdr.querySelector('.atw-code-chevron');
-        if (chev) chev.style.transform = open ? 'rotate(0deg)' : 'rotate(-90deg)';
-      });
-
-      wrap.appendChild(hdr);
-      wrap.appendChild(bodyWrap);
-      _body.appendChild(wrap);
-
-      _codePanel = wrap;
-      _codePanelPre = pre;
-      _codePanelToggle = hdr;
-      _scrollDown();
-    }
-
-    function _appendCodeChunk(text) {
-      if (!_codePanelPre) return;
-      _codePanelPre.textContent += text;
-      const lines = _codePanelPre.textContent.split('\n').length;
-      const linesEl = _codePanelToggle?.querySelector('.atw-code-lines');
-      if (linesEl) linesEl.textContent = `${lines} lines`;
-      // Auto-scroll only if panel body is open
-      const bodyWrap = _codePanel?.querySelector('.atw-code-body');
-      if (bodyWrap?.classList.contains('atw-code-body--open')) {
-        bodyWrap.scrollTop = bodyWrap.scrollHeight;
-      }
-    }
-
-    function _closeCodePanel() {
-      if (!_codePanel) return;
-      // Collapse it and dim indicator
-      const bodyWrap = _codePanel.querySelector('.atw-code-body');
-      if (bodyWrap) bodyWrap.classList.remove('atw-code-body--open');
-      const chev = _codePanelToggle?.querySelector('.atw-code-chevron');
-      if (chev) chev.style.transform = 'rotate(-90deg)';
-      const dot = _codePanel.querySelector('.atw-code-dot');
-      if (dot) dot.classList.add('atw-code-dot--done');
-      const linesEl = _codePanel.querySelector('.atw-code-lines');
-      if (linesEl) {
-        const lines = _codePanelPre?.textContent.split('\n').length || 0;
-        linesEl.textContent = `${lines} lines`;
-      }
-      _codePanel = null; _codePanelPre = null; _codePanelToggle = null;
-    }
-
-    // ── PUBLIC API ────────────────────────────────────────────────────────────
-    function show() { _ensure(); }
-
-    function addPhase(phase, label, text) { }
-
-    function addWritingRow(slug) {
-      _ensure();
-      _startCodePanel(slug);
-    }
-
-    function appendCodeChunk(text) {
-      _appendCodeChunk(text);
-    }
-
-    /** Stream thinking text live — called once per thinking_chunk event from the server */
-    let _thinkTextEl = null;
-    function stream(text) {
-      _ensure();
-      if (!_body || !text) return;
-      if (!_thinkTextEl) {
-        _thinkTextEl = document.createElement('p');
-        _thinkTextEl.className = 'atw-think-text';
-        _body.appendChild(_thinkTextEl);
-      }
-      _thinkTextEl.textContent += text;
-      _scrollDown();
-    }
-    function doneThinking() {
-      if (!_container) return;
-      // If no thinking content was ever streamed, just remove the empty bubble
-      if (!_thinkTextEl && !_isDone) { reset(); return; }
-      if (_isDone) return;
-      _isDone = true;
-      cancelAnimationFrame(_timerRaf);
-
-      const secs = Math.floor((Date.now() - _startTime) / 1000);
-
-      const spinDot = _toggle.querySelector('.atw-spin-dot');
-      if (spinDot) spinDot.remove();
-      if (_labelEl) _labelEl.textContent = `Thought for ${secs}s`;
-      if (_timerEl) _timerEl.textContent = '';
-      _toggle.classList.add('atw-toggle--done');
-
-    }
+    function _ensure() { if (!_container) _build(); return _container; }
 
     function _scrollDown() {
-      if (el.sidebarBody) el.sidebarBody.scrollTop = el.sidebarBody.scrollHeight;
+      const sb = document.getElementById('sidebarBody');
+      if (sb) sb.scrollTop = sb.scrollHeight;
+      const m = document.getElementById('messages');
+      if (m && m.parentElement) m.parentElement.scrollTop = m.parentElement.scrollHeight;
     }
 
     function reset() {
       if (_timerRaf) cancelAnimationFrame(_timerRaf);
-      if (_typeRaf) cancelAnimationFrame(_typeRaf);
-      if (_body) _body.innerHTML = "";
+      if (_phraseInterval) clearInterval(_phraseInterval);
       if (_container && _container.parentNode) _container.parentNode.removeChild(_container);
-      _container = null; _toggle = null; _body = null; _labelEl = null; _timerEl = null;
-      _startTime = 0; _isDone = false; _timerRaf = null;
-      _typeQueue = []; _typeRaf = null;
-      _thinkTextEl = null;
-      AIThinkChat._narrativeAccum = "";
-      AIThinkChat._thinkAccum = "";
+      _container = null; _phraseSpan = null; _timerEl = null;
+      _startTime = 0; _isDone = false; _timerRaf = null; _phraseInterval = null;
+      _reasoningBuffer = '';
     }
 
-    function noop() { }
-    const pub = { show, stream, addPhase, addWritingRow, appendCodeChunk, doneThinking, addStep: noop, updateStep: noop, reset };
-    pub._narrativeAccum = '';
-    pub._thinkAccum = '';
-    return pub;
+    function doneThinking() {
+      if (!_container || _isDone) return;
+      _isDone = true;
+      reset();
+    }
+
+    function stream(text) {
+      if (!text) return;
+      _ensure();
+      _isDone = false;
+      _reasoningBuffer += text;
+      _scrollDown();
+    }
+
+    function addWritingRow(slug) {
+      _ensure();
+      if (_phraseSpan) {
+        _phraseSpan.textContent = `Writing ${slug}...`;
+      }
+    }
+
+    function appendCodeChunk(text) {
+      // Optional: could show a progress bar or similar
+    }
+
+    return {
+      show: _ensure,
+      stream,
+      doneThinking,
+      reset,
+      getReasoning: () => _reasoningBuffer,
+      addPhase: (phase, text) => {
+        _ensure();
+        if (_phraseInterval) { clearInterval(_phraseInterval); _phraseInterval = null; }
+        if (text && _phraseSpan) {
+           _phraseSpan.style.opacity = '1';
+           _phraseSpan.textContent = text;
+        }
+      },
+      addWritingRow,
+      appendCodeChunk,
+      addStep: noop,
+      updateStep: noop
+    };
   })();
 
-/* ============================================================
-   CANVAS-FIRST GENERATION STAGE
-   Replaces old GenStage + removes any DidYouKnow dependency.
-============================================================ */
-const GenStage = (() => {
-  const canvas = document.getElementById('canvasArea');
-  const shell = document.getElementById('generationShell');
-  const stage = document.getElementById('genStage');
-  const panelsEl = document.getElementById('genPanels');
-  const titleEl = document.getElementById('genStageTitle');
-  const subtitleEl = document.getElementById('genStageSubtitle');
-  const deviceFrame = document.getElementById('deviceFrame');
+  /* ============================================================
+     CANVAS-FIRST GENERATION STAGE
+     Replaces old GenStage + removes any DidYouKnow dependency.
+  ============================================================ */
+  const GenStage = (() => {
+    const canvas = document.getElementById('canvasArea');
+    const shell = document.getElementById('generationShell');
+    const stage = document.getElementById('genStage');
+    const titleEl = document.getElementById('genStageTitle');
+    const subtitleEl = document.getElementById('genStageSubtitle');
+    const deviceFrame = document.getElementById('deviceFrame');
 
-  let pages = [];
-  let visible = false;
+    let pages = [];
+    let visible = false;
 
-  function slugify(value) {
-    return String(value || 'page')
-      .trim()
-      .toLowerCase()
-      .replace(/\.html$/i, '')
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '') || 'page';
-  }
-
-  function toLabel(slug) {
-    return `${slug}.html`;
-  }
-
-  function buildLineWidths(index) {
-    const sets = [
-      [86, 68, 74, 58],
-      [80, 62, 76, 44],
-      [88, 70, 61, 52],
-      [74, 54, 83, 49]
+    const PHRASES = [
+      "Crafting architecture...",
+      "Drafting layouts...",
+      "Mixing palettes...",
+      "Writing components...",
+      "Polishing interactions..."
     ];
-    return sets[index % sets.length];
-  }
+    let _phraseIdx = 0;
+    let _phraseTimer = null;
 
-  function normalize(input) {
-    const source = Array.isArray(input) && input.length ? input : ['index'];
-    return source.map((item, i) => {
-      const raw = typeof item === 'string'
-        ? item
-        : item.slug || item.name || item.page || `page-${i + 1}`;
-
-      const slug = slugify(raw);
-      return {
-        slug,
-        label: toLabel(slug),
-        status: 'queued'
-      };
-    });
-  }
-
-  function ensurePage(slug) {
-    const key = slugify(slug);
-    let page = pages.find(p => p.slug === key);
-    if (!page) {
-      page = { slug: key, label: toLabel(key), status: 'queued' };
-      pages.push(page);
-    }
-    return page;
-  }
-
-  function render() {
-    if (!panelsEl) return;
-    panelsEl.innerHTML = '';
-
-    pages.forEach((page, index) => {
-      const article = document.createElement('article');
-      article.className = `gpage-panel gpage-panel--${page.status}`;
-      article.dataset.slug = page.slug;
-
-      const widths = buildLineWidths(index);
-      const lines = widths.map(w => (
-        `<span class="gpage-panel__line" style="width:${w}%"></span>`
-      )).join('');
-
-      const stateText = {
-        queued:  'Queued',
-        writing: 'Writing…',
-        ready:   'Done',
-        error:   'Error'
-      }[page.status] || 'Queued';
-
-      const progressBar = page.status === 'writing'
-        ? `<div class="gpage-panel__progress"></div>`
-        : '';
-
-      article.innerHTML = `
-        <div class="gpage-panel__chrome">
-          <span class="gpage-panel__name">${page.label}</span>
-          <span class="gpage-panel__state">${stateText}</span>
-        </div>
-        <div class="gpage-panel__body">
-          <div class="gpage-panel__hero"></div>
-          <div class="gpage-panel__lines">${lines}</div>
-          <div class="gpage-panel__block"></div>
-          <div class="gpage-panel__lines">
-            <span class="gpage-panel__line" style="width:58%"></span>
-            <span class="gpage-panel__line" style="width:38%"></span>
-          </div>
-        </div>
-        ${progressBar}
-      `;
-
-      panelsEl.appendChild(article);
-    });
-  }
-
-  function syncSummary() {
-    if (!subtitleEl) return;
-
-    const total = pages.length;
-    const ready = pages.filter(p => p.status === 'ready').length;
-    const writing = pages.find(p => p.status === 'writing');
-
-    if (writing) {
-      subtitleEl.textContent = `Writing ${writing.label} • ${ready}/${total} ready`;
-      return;
+    function slugify(value) {
+      return String(value || 'page')
+        .trim()
+        .toLowerCase()
+        .replace(/\.html$/i, '')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '') || 'page';
     }
 
-    if (ready === total && total > 0) {
-      subtitleEl.textContent = `All ${total} page${total === 1 ? '' : 's'} generated`;
-      return;
+    function toLabel(slug) {
+      return `${slug}.html`;
     }
 
-    subtitleEl.textContent = `Creating ${total} page${total === 1 ? '' : 's'} in the workspace`;
-  }
+    function normalize(input) {
+      const source = Array.isArray(input) && input.length ? input : ['index'];
+      return source.map((item, i) => {
+        const raw = typeof item === 'string'
+          ? item
+          : item.slug || item.name || item.page || `page-${i + 1}`;
 
-  function setVisible(on) {
-    visible = !!on;
-
-    if (canvas) canvas.classList.toggle('generating', visible);
-    if (shell) shell.style.display = visible ? 'flex' : '';
-    if (stage) stage.hidden = !visible;
-    if (stage) stage.setAttribute('aria-busy', visible ? 'true' : 'false');
-
-    if (!visible && panelsEl) {
-      setTimeout(() => {
-        if (!visible) panelsEl.innerHTML = '';
-      }, 200);
-    }
-
-    if (deviceFrame) {
-      deviceFrame.style.visibility = visible ? 'visible' : '';
-    }
-  }
-
-  function show(inputPages, opts = {}) {
-    pages = normalize(inputPages);
-
-    if (titleEl) {
-      titleEl.textContent = opts.title || 'Generating your site';
-    }
-
-    render();
-    syncSummary();
-    setVisible(true);
-  }
-
-  function updateStatus(slug, status) {
-    const page = ensurePage(slug);
-
-    if (status === 'writing') {
-      pages.forEach(p => {
-        if (p.slug !== page.slug && p.status === 'writing') {
-          p.status = 'queued';
-        }
+        const slug = slugify(raw);
+        return {
+          slug,
+          label: toLabel(slug),
+          status: 'queued'
+        };
       });
     }
 
-    page.status = status;
-    render();
-    syncSummary();
+    function ensurePage(slug) {
+      const key = slugify(slug);
+      let page = pages.find(p => p.slug === key);
+      if (!page) {
+        page = { slug: key, label: toLabel(key), status: 'queued' };
+        pages.push(page);
+      }
+      return page;
+    }
+
+    function syncSummary() {
+      if (!subtitleEl) return;
+
+      const total = pages.length;
+      const ready = pages.filter(p => p.status === 'ready').length;
+      const writing = pages.find(p => p.status === 'writing');
+
+      if (writing) {
+        subtitleEl.textContent = `Writing ${writing.label} • ${ready}/${total} ready`;
+        return;
+      }
+
+      if (ready === total && total > 0) {
+        subtitleEl.textContent = `All ${total} page${total === 1 ? '' : 's'} generated`;
+        return;
+      }
+
+      subtitleEl.textContent = `Creating ${total} page${total === 1 ? '' : 's'} in the workspace`;
+    }
+
+    function _cyclePhrases() {
+      if (!titleEl) return;
+      _phraseIdx = (_phraseIdx + 1) % PHRASES.length;
+      titleEl.textContent = PHRASES[_phraseIdx];
+    }
+
+    function setVisible(on) {
+      visible = !!on;
+
+      if (canvas) canvas.classList.toggle('generating', visible);
+      if (shell) shell.style.display = visible ? 'flex' : '';
+      if (stage) stage.hidden = !visible;
+      if (stage) stage.setAttribute('aria-busy', visible ? 'true' : 'false');
+
+      if (visible) {
+        if (!_phraseTimer) {
+          _phraseIdx = 0;
+          if (titleEl) titleEl.textContent = PHRASES[0];
+          _phraseTimer = setInterval(_cyclePhrases, 3000);
+        }
+      } else {
+        if (_phraseTimer) clearInterval(_phraseTimer);
+        _phraseTimer = null;
+      }
+
+      if (deviceFrame) {
+        deviceFrame.style.visibility = visible ? 'visible' : '';
+      }
+    }
+
+    function show(inputPages, opts = {}) {
+      pages = normalize(inputPages);
+      if (titleEl && opts.title) {
+        // optional override, otherwise wait for cycle
+      }
+      syncSummary();
+      setVisible(true);
+    }
+
+    function updateStatus(slug, status) {
+      const page = ensurePage(slug);
+
+      if (status === 'writing') {
+        pages.forEach(p => {
+          if (p.slug !== page.slug && p.status === 'writing') {
+            p.status = 'queued';
+          }
+        });
+      }
+
+      page.status = status;
+      syncSummary();
+    }
+
+    function setQueued(slug) {
+      updateStatus(slug, 'queued');
+    }
+
+    function setWriting(slug) {
+      updateStatus(slug, 'writing');
+    }
+
+    function setReady(slug) {
+      updateStatus(slug, 'ready');
+    }
+
+    function setError(slug) {
+      updateStatus(slug, 'error');
+    }
+
+    function showAllReady(slugs = []) {
+      const list = Array.isArray(slugs) && slugs.length
+        ? slugs
+        : pages.map(p => p.slug);
+
+      list.forEach((slug, index) => {
+        setTimeout(() => setReady(slug), index * 90);
+      });
+    }
+
+    function hide() {
+      setVisible(false);
+    }
+
+    function reset() {
+      pages = [];
+      setVisible(false);
+    }
+
+    return {
+      show,
+      setQueued,
+      setWriting,
+      setReady,
+      setError,
+      showAllReady,
+      hide,
+      reset
+    };
+  })();
+
+  /* ============================================================
+     SIMPLE GENERATION CHAT
+     Keeps the sidebar as plain chat/history during generation.
+  ============================================================ */
+  function addSystemGenerationMessage(text) {
+    const msg = document.createElement('div');
+    msg.className = 'message ai';
+    msg.innerHTML = `<div class="message-content">${text}</div>`;
+    el.messages.appendChild(msg);
+    if (el.sidebarBody) el.sidebarBody.scrollTop = el.sidebarBody.scrollHeight;
+    return msg;
   }
 
-  function setQueued(slug) {
-    updateStatus(slug, 'queued');
+  /* ============================================================
+     GENERATION LIFECYCLE HELPERS
+     Use these from your existing stream / fetch pipeline.
+  ============================================================ */
+  function beginCanvasGeneration(plannedPages = []) {
+    const pages = Array.isArray(plannedPages) && plannedPages.length
+      ? plannedPages
+      : ['index'];
+
+    setGenerating(true);
+    GenStage.show(pages, { title: 'Generating your site' });
+
+    if (el.chatInput) el.chatInput.blur();
+    addSystemGenerationMessage(`Building ${pages.length} page${pages.length === 1 ? '' : 's'}...`);
   }
 
-  function setWriting(slug) {
-    updateStatus(slug, 'writing');
+  function beginCanvasModify(targetLabel = 'current page') {
+    setGenerating(true);
+    GenStage.show([targetLabel], { title: 'Applying changes' });
+    GenStage.setWriting(targetLabel);
+    addSystemGenerationMessage(`Updating ${targetLabel}...`);
   }
 
-  function setReady(slug) {
-    updateStatus(slug, 'ready');
+  function markGenerationPageWriting(slug) {
+    GenStage.setWriting(slug);
   }
 
-  function setError(slug) {
-    updateStatus(slug, 'error');
+  function markGenerationPageReady(slug) {
+    GenStage.setReady(slug);
   }
 
-  function showAllReady(slugs = []) {
-    const list = Array.isArray(slugs) && slugs.length
-      ? slugs
-      : pages.map(p => p.slug);
-
-    list.forEach((slug, index) => {
-      setTimeout(() => setReady(slug), index * 90);
-    });
+  function markGenerationPageError(slug) {
+    GenStage.setError(slug);
   }
 
-  function hide() {
-    setVisible(false);
+  function finishCanvasGeneration(finalPages = []) {
+    if (finalPages.length) {
+      GenStage.showAllReady(finalPages);
+    } else {
+      GenStage.showAllReady();
+    }
+
+    setTimeout(() => {
+      GenStage.hide();
+      setGenerating(false);
+    }, 700);
   }
 
-  function reset() {
-    pages = [];
-    setVisible(false);
-  }
-
-  return {
-    show,
-    setQueued,
-    setWriting,
-    setReady,
-    setError,
-    showAllReady,
-    hide,
-    reset
-  };
-})();
-
-/* ============================================================
-   SIMPLE GENERATION CHAT
-   Keeps the sidebar as plain chat/history during generation.
-============================================================ */
-function addSystemGenerationMessage(text) {
-  const msg = document.createElement('div');
-  msg.className = 'message ai';
-  msg.innerHTML = `<div class="message-content">${text}</div>`;
-  el.messages.appendChild(msg);
-  if (el.sidebarBody) el.sidebarBody.scrollTop = el.sidebarBody.scrollHeight;
-  return msg;
-}
-
-/* ============================================================
-   GENERATION LIFECYCLE HELPERS
-   Use these from your existing stream / fetch pipeline.
-============================================================ */
-function beginCanvasGeneration(plannedPages = []) {
-  const pages = Array.isArray(plannedPages) && plannedPages.length
-    ? plannedPages
-    : ['index'];
-
-  setGenerating(true);
-  GenStage.show(pages, { title: 'Generating your site' });
-
-  if (el.chatInput) el.chatInput.blur();
-  addSystemGenerationMessage(`Building ${pages.length} page${pages.length === 1 ? '' : 's'}...`);
-}
-
-function beginCanvasModify(targetLabel = 'current page') {
-  setGenerating(true);
-  GenStage.show([targetLabel], { title: 'Applying changes' });
-  GenStage.setWriting(targetLabel);
-  addSystemGenerationMessage(`Updating ${targetLabel}...`);
-}
-
-function markGenerationPageWriting(slug) {
-  GenStage.setWriting(slug);
-}
-
-function markGenerationPageReady(slug) {
-  GenStage.setReady(slug);
-}
-
-function markGenerationPageError(slug) {
-  GenStage.setError(slug);
-}
-
-function finishCanvasGeneration(finalPages = []) {
-  if (finalPages.length) {
-    GenStage.showAllReady(finalPages);
-  } else {
-    GenStage.showAllReady();
-  }
-
-  setTimeout(() => {
+  function failCanvasGeneration(message = 'Generation failed.') {
     GenStage.hide();
     setGenerating(false);
-  }, 700);
-}
-
-function failCanvasGeneration(message = 'Generation failed.') {
-  GenStage.hide();
-  setGenerating(false);
-  addSystemGenerationMessage(message);
-}
-
-/* ============================================================
-   STOP GENERATION
-   Replace your current stopGeneration() with this.
-============================================================ */
-function stopGeneration() {
-  if (!isGenerating) return;
-
-  if (genAbortCtrl) {
-    genAbortCtrl.abort();
-    genAbortCtrl = null;
+    addSystemGenerationMessage(message);
   }
 
-  Queue.forceReset();
-  GenStage.hide();
-  setGenerating(false);
-  addSystemGenerationMessage('Generation stopped.');
-}
+  /* ============================================================
+     STOP GENERATION
+     Replace your current stopGeneration() with this.
+  ============================================================ */
+  function stopGeneration() {
+    if (!isGenerating) return;
 
-/* ============================================================
-   EXAMPLE INTEGRATION
-   Call these from your existing streaming events.
-============================================================ */
+    if (genAbortCtrl) {
+      genAbortCtrl.abort();
+      genAbortCtrl = null;
+    }
 
-/*
-Example: initial project generation
+    Queue.forceReset();
+    GenStage.hide();
+    setGenerating(false);
+    addSystemGenerationMessage('Generation stopped.');
+  }
 
-beginCanvasGeneration(['index', 'pricing', 'about']);
+  /* ============================================================
+     EXAMPLE INTEGRATION
+     Call these from your existing streaming events.
+  ============================================================ */
 
-markGenerationPageWriting('index');
-// stream index page...
-markGenerationPageReady('index');
+  /*
+  Example: initial project generation
+  
+  beginCanvasGeneration(['index', 'pricing', 'about']);
+  
+  markGenerationPageWriting('index');
+  // stream index page...
+  markGenerationPageReady('index');
+  
+  markGenerationPageWriting('pricing');
+  // stream pricing page...
+  markGenerationPageReady('pricing');
+  
+  markGenerationPageWriting('about');
+  // stream about page...
+  markGenerationPageReady('about');
+  
+  finishCanvasGeneration(['index', 'pricing', 'about']);
+  */
 
-markGenerationPageWriting('pricing');
-// stream pricing page...
-markGenerationPageReady('pricing');
-
-markGenerationPageWriting('about');
-// stream about page...
-markGenerationPageReady('about');
-
-finishCanvasGeneration(['index', 'pricing', 'about']);
-*/
-
-/*
-Example: modify current page
-
-beginCanvasModify('index');
-// stream modified html...
-markGenerationPageReady('index');
-finishCanvasGeneration(['index']);
-*/
+  /*
+  Example: modify current page
+  
+  beginCanvasModify('index');
+  // stream modified html...
+  markGenerationPageReady('index');
+  finishCanvasGeneration(['index']);
+  */
 
 
   /* ============================================================
@@ -793,7 +645,7 @@ finishCanvasGeneration(['index']);
 
     async function refresh() {
       try {
-        if (!window.Auth || !Auth.isAuthenticated()) return;
+        if (!window.Auth || !window.Auth.isAuthenticated()) return;
         // FIX #11: derive origin cleanly instead of fragile string .replace('/api','')
         // which would corrupt URLs like https://api.example.com/api → https:.example.com/api
         let meUrl;
@@ -804,14 +656,14 @@ finishCanvasGeneration(['index']);
         } catch {
           meUrl = '/api/auth/me/';
         }
-        const res = await Auth.apiFetch(meUrl);
+        const res = await window.Auth.apiFetch(meUrl);
         if (!res.ok) return;
         const user = await res.json();
         _display(user.credits ?? 0);
         // Also update the auth state so dropdown stays in sync
-        if (window.Auth && Auth.getUser()) {
-          Auth.getUser().credits = user.credits;
-          Auth.getUser().plan = user.plan;
+        if (window.Auth && window.Auth.getUser()) {
+          window.Auth.getUser().credits = user.credits;
+          window.Auth.getUser().plan = user.plan;
         }
       } catch { /* silent — badge just keeps last value */ }
     }
@@ -930,11 +782,11 @@ finishCanvasGeneration(['index']);
   /* ============================================================
      HTML VALIDATION
   ============================================================ */
-  function isValidUserHTML(code) {
+  function isValidUserHTML(code, isEdit = false) {
     if (!code || typeof code !== 'string') return false;
     const t = code.trim();
-    if (t.length < 50) return false;
-    if (!/<html[\s>]/i.test(t) && !/<body[\s>]/i.test(t)) return false;
+    if (t.length < 5) return false; 
+    if (!isEdit && !/<html[\s>]/i.test(t) && !/<body[\s>]/i.test(t)) return false;
     return true;
   }
 
@@ -1087,7 +939,7 @@ finishCanvasGeneration(['index']);
       console.debug('[nebulux] Navigation blocked in preview:', url);
     }
 
-    if (e.data.type === 'nebulux:edit-text' || e.data.type === 'nebulux:edit-image') {
+    if (e.data.type === 'nebulux:edit-text' || e.data.type === 'nebulux:edit-image' || e.data.type === 'nebulux:replace-with-image') {
       const { selector, text, src: imgSrc } = e.data;
       if (!state.currentCode || !selector) return;
 
@@ -1099,8 +951,20 @@ finishCanvasGeneration(['index']);
           if (!el) return;
           if (e.data.type === 'nebulux:edit-text') {
             el.innerHTML = text;
-          } else {
+          } else if (e.data.type === 'nebulux:edit-image') {
             el.setAttribute('src', finalSrc || imgSrc);
+          } else if (e.data.type === 'nebulux:replace-with-image') {
+            const newImg = doc.createElement('img');
+            newImg.src = finalSrc || imgSrc;
+            newImg.style.maxHeight = '40px';
+            newImg.style.width = 'auto';
+            if (el.tagName === 'SVG' || el.tagName === 'I') {
+              if (el.className) newImg.className = el.className;
+              el.replaceWith(newImg);
+            } else {
+              el.innerHTML = '';
+              el.appendChild(newImg);
+            }
           }
           const newCode = '<!DOCTYPE html>\n' + doc.documentElement.outerHTML;
           commitCurrentCode(newCode);
@@ -1109,13 +973,13 @@ finishCanvasGeneration(['index']);
           if (pageObj) pageObj.code = newCode;
           Project.save();
           addToHistory(newCode, 'Edited');
-        } catch(err) {
+        } catch (err) {
           console.warn('[nebulux] inline edit failed:', err);
         }
       };
 
       // For image edits: upload base64 to R2 first, then save with permanent URL
-      if (e.data.type === 'nebulux:edit-image' && imgSrc && imgSrc.startsWith('data:')) {
+      if ((e.data.type === 'nebulux:edit-image' || e.data.type === 'nebulux:replace-with-image') && imgSrc && imgSrc.startsWith('data:')) {
         (async () => {
           let finalSrc = imgSrc;
           try {
@@ -1126,7 +990,7 @@ finishCanvasGeneration(['index']);
             const formData = new FormData();
             formData.append('image', blob, 'inline-edit.png');
             // Must NOT set Content-Type here — browser sets multipart/form-data + boundary automatically
-            const _uploadToken = window.Auth && Auth.getAccessToken ? Auth.getAccessToken() : null;
+            const _uploadToken = window.Auth && window.Auth.getAccessToken ? window.Auth.getAccessToken() : null;
             const _uploadHeaders = _uploadToken ? { 'Authorization': 'Bearer ' + _uploadToken } : {};
             const res = await fetch(CONFIG.apiBaseUrl + '/upload-image/', {
               method: 'POST',
@@ -1137,7 +1001,7 @@ finishCanvasGeneration(['index']);
               const data = await res.json();
               if (data.url) finalSrc = data.url;
             }
-          } catch(uploadErr) {
+          } catch (uploadErr) {
             console.warn('[nebulux] inline image upload failed, using base64:', uploadErr);
           }
           _applyEdit(finalSrc);
@@ -1353,7 +1217,14 @@ finishCanvasGeneration(['index']);
 
         document.addEventListener('dblclick', function(e) {
           const img = e.target.closest('img');
-          if (img) {
+          const isSvgOrIcon = e.target.closest('svg, i[class*="fa-"], i[class*="lucide-"]');
+          const isLogoWrapper = e.target.closest('.logo, .brand, .navbar-brand, header a[href="/"], nav a[href="/"]');
+          const targetEl = img || isSvgOrIcon || isLogoWrapper;
+
+          if (targetEl) {
+            // If they clicked the padding of a logo wrapper that already contains an image, let the img logic handle it if they clicked the image directly later. Or just let the wrapper trigger if img wasn't specifically the target, but if it's already an img inside the wrapper, don't double replace.
+            if (!img && isLogoWrapper && isLogoWrapper.querySelector('img')) return;
+
             e.preventDefault();
             e.stopPropagation();
             const input = document.createElement('input');
@@ -1368,8 +1239,25 @@ finishCanvasGeneration(['index']);
               const reader = new FileReader();
               reader.onload = function(ev) {
                 const dataUrl = ev.target.result;
-                img.src = dataUrl;
-                try { parent.postMessage({ type: 'nebulux:edit-image', selector: _getSelector(img), src: dataUrl }, '*'); } catch(e2) {}
+                if (img) {
+                  img.src = dataUrl;
+                  try { parent.postMessage({ type: 'nebulux:edit-image', selector: _getSelector(img), src: dataUrl }, '*'); } catch(e2) {}
+                } else {
+                  try { parent.postMessage({ type: 'nebulux:replace-with-image', selector: _getSelector(targetEl), src: dataUrl }, '*'); } catch(e2) {}
+                  const newImg = document.createElement('img');
+                  newImg.src = dataUrl;
+                  if (isSvgOrIcon) {
+                    if (isSvgOrIcon.className) newImg.className = isSvgOrIcon.className;
+                    newImg.style.maxHeight = '40px';
+                    newImg.style.width = 'auto';
+                    isSvgOrIcon.replaceWith(newImg);
+                  } else {
+                    targetEl.innerHTML = '';
+                    targetEl.appendChild(newImg);
+                    newImg.style.maxHeight = '40px';
+                    newImg.style.width = 'auto';
+                  }
+                }
                 input.remove();
               };
               reader.readAsDataURL(file);
@@ -1406,13 +1294,13 @@ finishCanvasGeneration(['index']);
     `;
   }
 
-    // Bind the load listener once at module-init time.
-    // Primary signal: nebulux:dom-ready postMessage from guard script (DOMContentLoaded).
-    // Safety net: _handleIframeLoad on 'load' (fires after all subresources).
-    el.previewFrame.addEventListener('load', _handleIframeLoad);
+  // Bind the load listener once at module-init time.
+  // Primary signal: nebulux:dom-ready postMessage from guard script (DOMContentLoaded).
+  // Safety net: _handleIframeLoad on 'load' (fires after all subresources).
+  el.previewFrame.addEventListener('load', _handleIframeLoad);
 
   function updatePreview(code) {
-    if (!isValidUserHTML(code)) {
+    if (!isValidUserHTML(code, true)) {
       _showRenderError('⚠️ Invalid HTML. Please try again.');
       return;
     }
@@ -1536,7 +1424,7 @@ finishCanvasGeneration(['index']);
           const page = getCurrentPage();
           if (page) page.code = state.currentCode;
         }
-      } catch(e) { console.warn('[nebulux] nbxId sync failed:', e); }
+      } catch (e) { console.warn('[nebulux] nbxId sync failed:', e); }
     }
 
     state.selectedElement = { tag, text, path: tag + id + classes, nbxId };
@@ -1565,7 +1453,7 @@ finishCanvasGeneration(['index']);
     el.editorInput.focus();
     // Show relevant inline edit buttons
     const isImg = tag === 'img';
-    const isText = ['p','h1','h2','h3','h4','h5','h6','span','a','li','td','th','button','label'].includes(tag);
+    const isText = ['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'span', 'a', 'li', 'td', 'th', 'button', 'label'].includes(tag);
     el.editorEditText.style.display = isText ? '' : 'none';
     el.editorReplaceImage.style.display = isImg ? '' : 'none';
     log('element_selected', { tag, path: state.selectedElement.path, nbxId });
@@ -1699,7 +1587,7 @@ finishCanvasGeneration(['index']);
                   data: fullData,
                   thumb: canvas.toDataURL('image/jpeg', 0.75),
                 });
-              } catch(e) {
+              } catch (e) {
                 resolve({ name: file.name, type: fileType, data: fullData });
               }
             };
@@ -1755,7 +1643,7 @@ finishCanvasGeneration(['index']);
 
     /** Update the attach badge count in the UI */
     function _esc(str) {
-      return String(str).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      return String(str).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
 
     function _renderPendingPreview() {
@@ -1763,7 +1651,7 @@ finishCanvasGeneration(['index']);
       if (!wrap) return;
       wrap.style.cssText = 'display:flex;flex-direction:row;flex-wrap:nowrap;overflow-x:auto;gap:8px;padding:0 14px 8px;';
       wrap.innerHTML = '';
-      state.files.forEach(function(f, i) {
+      state.files.forEach(function (f, i) {
         const card = document.createElement('div');
         card.className = 'pfc';
         if (isImage(f.type)) {
@@ -1779,8 +1667,8 @@ finishCanvasGeneration(['index']);
         }
         wrap.appendChild(card);
       });
-      wrap.querySelectorAll('.pfc-remove').forEach(function(btn) {
-        btn.addEventListener('click', function(e) {
+      wrap.querySelectorAll('.pfc-remove').forEach(function (btn) {
+        btn.addEventListener('click', function (e) {
           e.stopPropagation();
           removeFile(parseInt(btn.dataset.i));
         });
@@ -1790,7 +1678,7 @@ finishCanvasGeneration(['index']);
     // _showFileAttachments removed — preview handled by _renderPendingPreview
 
 
-    return { loadFromStorage, saveToProject, loadFromProject, readFile, addFiles, removeFile, clearFiles, isImage, getFiles: function() { return state.files.slice(); } };
+    return { loadFromStorage, saveToProject, loadFromProject, readFile, addFiles, removeFile, clearFiles, isImage, getFiles: function () { return state.files.slice(); } };
   })();
 
   /* ============================================================
@@ -1802,9 +1690,9 @@ finishCanvasGeneration(['index']);
       const timer = setTimeout(() => ctrl.abort(), 600000); // 10 minutes
       try {
         const url = `${CONFIG.apiBaseUrl}${path}`;
-        const useAuth = window.Auth && typeof Auth.apiFetch === 'function';
+        const useAuth = window.Auth && typeof window.Auth.apiFetch === 'function';
         const res = useAuth
-          ? await Auth.apiFetch(url, {
+          ? await window.Auth.apiFetch(url, {
             method: 'POST',
             body: JSON.stringify(body),
             signal: ctrl.signal,
@@ -1919,8 +1807,8 @@ finishCanvasGeneration(['index']);
         const url = `${CONFIG.apiBaseUrl}/generate/`;
         // authFetch just adds the Bearer header and returns a raw fetch Response —
         // it does NOT consume the body, so streaming works fine through it.
-        const res = window.Auth && typeof Auth.apiFetch === 'function'
-          ? await Auth.apiFetch(url, {
+        const res = window.Auth && typeof window.Auth.apiFetch === 'function'
+          ? await window.Auth.apiFetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' }, // FIX #9: was missing
             body: JSON.stringify(body),
@@ -2074,21 +1962,84 @@ finishCanvasGeneration(['index']);
       return { spec: data.spec || {}, missing_fields: data.missing_fields || [], tokens: data.tokens_used || 0 };
     },
 
-    async modify(code, instruction, pageSlug, nbxId, editMode) {
+    async modify(code, instruction, pageSlug, nbxId, editMode, signal) {
       const body = { code, instruction };
       if (pageSlug) body.page_slug = pageSlug;
-      // Task 1: send the precise element ID for AST-scoped replacement
       if (nbxId) body.nbx_id = nbxId;
-      // Task 3: send the macro command mode for segmented prompts
       if (editMode) body.edit_mode = editMode;
       if (state.files && state.files.length > 0) {
         body.files = state.files.map(f => ({ name: f.name, type: f.type, data: f.data }));
       }
-      // Send recent chat history so the AI can resolve pronouns and multi-turn references
       const history = _getRecentHistory(8);
       if (history.length > 0) body.chat_history = history;
-      const data = await this._fetch('/modify/', body);
-      return { code: data.code, tokens: data.tokens_used || 0 };
+
+      const url = `${CONFIG.apiBaseUrl}/modify/`;
+      const useAuth = window.Auth && typeof window.Auth.apiFetch === 'function';
+      
+      const res = useAuth
+        ? await window.Auth.apiFetch(url, {
+            method: 'POST',
+            body: JSON.stringify(body),
+            signal: signal,
+          })
+        : await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+            signal: signal,
+          });
+
+      if (!res.ok) {
+        const text = await res.text();
+        let msg;
+        try {
+          const d = JSON.parse(text);
+          msg = d.error || d.detail || `Request failed (${res.status})`;
+        } catch { msg = `Request failed (${res.status})`; }
+        throw new Error(msg);
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '', fullCode = '', finalTokens = 0;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          try {
+            const chunk = JSON.parse(trimmed);
+            if (chunk.done) {
+              finalTokens = chunk.tokens_used || 0;
+              // Support both 'code' and 'full_code' (mismatch in some versions)
+              if (chunk.code || chunk.full_code) {
+                  fullCode = chunk.code || chunk.full_code; 
+              }
+            } else if (chunk.thinking_start) {
+              AIThinkChat.show();
+            } else if (typeof chunk.thinking_chunk === 'string') {
+              AIThinkChat.stream(chunk.thinking_chunk);
+            } else if (chunk.thinking_end) {
+              AIThinkChat.doneThinking();
+            } else if (typeof chunk.chunk === 'string') {
+              fullCode += chunk.chunk;
+            } else if (chunk.error) {
+              throw new Error(chunk.error);
+            }
+          } catch (e) {
+            if (!(e instanceof SyntaxError)) throw e;
+          }
+        }
+      }
+
+      return { code: fullCode, tokens: finalTokens };
     },
   };
 
@@ -2139,6 +2090,17 @@ finishCanvasGeneration(['index']);
       }
       .message.user:hover .msg-edit-btn { opacity: 1; }
       .message.editing-source { outline: 1px solid rgba(247,148,29,.4); border-radius: 14px; }
+      .message.ai-thinking-minimal {
+        background: rgba(255,255,255,.05);
+        border: 1px solid rgba(255,255,255,.1);
+        border-radius: 12px;
+        padding: 8px 12px;
+        margin-bottom: 8px;
+        display: inline-flex;
+        align-items: center;
+        width: auto;
+        max-width: 90%;
+      }
 
       /* ── AI Think widget ── */
       .message.atw-container {
@@ -2620,7 +2582,7 @@ finishCanvasGeneration(['index']);
 
 
   async function _conversationalReply(userText, capturedFiles) {
-    const msgEl = addMessage('ai', '…');
+    const msgEl = addMessage('ai', '…', false, null, { __skipPush: true });
     try {
       const pageContext = state.currentCode ? state.currentCode.substring(0, 1500) : '';
       const filesToSend = (capturedFiles && capturedFiles.length > 0) ? capturedFiles : [];
@@ -2642,7 +2604,7 @@ finishCanvasGeneration(['index']);
         img.src = src;
       })));
       const data = await API._fetch('/chat/', {
-        message:      userText,
+        message: userText,
         page_context: pageContext,
         chat_history: _getRecentHistory(6),
         files: compressedFiles,
@@ -2651,6 +2613,7 @@ finishCanvasGeneration(['index']);
         ? data.reply
         : 'How can I help with your site?';
       const contentEl = msgEl.querySelector('.message-content') || msgEl;
+      contentEl.innerHTML = '';
       _renderTextWithCode(contentEl, reply);
       Chat.push('ai', reply);
       Chat.saveToStorage();
@@ -2864,7 +2827,11 @@ finishCanvasGeneration(['index']);
           });
           // Remove the interim status message before showing the success message
           el.messages.querySelector('.gen-status-msg')?.remove();
-          addMessage('ai', '\u2713 Generated ' + pageCount + ' page' + (pageCount > 1 ? 's' : '') + ': ' + pageNames, true);
+          addMessage('system-sys', 'Generated ' + pageCount + ' page' + (pageCount > 1 ? 's' : '') + ': ' + pageNames);
+          addMessage('ai', 'Here is the website you requested. Let me know if you want to adjust the colors, fonts, or tweak any sections.', false, null, {
+            reasoning: AIThinkChat.getReasoning(),
+            chips: ['Change colors', 'Edit typography', 'Add a new page']
+          });
         } else {
           // ── Single-page fallback ──
           if (!isValidUserHTML(code)) {
@@ -2884,7 +2851,11 @@ finishCanvasGeneration(['index']);
           Project.save();
           setTimeout(() => GenStage.hide(), 900);
           el.messages.querySelector('.gen-status-msg')?.remove();
-          addMessage('ai', '\u2713 Website generated!');
+          addMessage('system-sys', 'Website generated');
+          addMessage('ai', 'Here is the website you requested. Let me know if you want to adjust the colors, fonts, or tweak any sections.', false, null, {
+            reasoning: AIThinkChat.getReasoning(),
+            chips: ['Change colors', 'Edit typography', 'Add a new page']
+          });
         }
 
         // Stamp the project ID into the URL so a page refresh loads this project
@@ -2928,36 +2899,39 @@ finishCanvasGeneration(['index']);
     return Queue.add(async () => {
       _setGenerating(true);
 
-      // Never show full-screen overlay for edits — chat message is enough feedback.
       const isElementEdit = explicitNbxId !== null;
-
       log('modify_start', { instruction: instruction.substring(0, 80), editMode, isElementEdit });
-
-      // Show live progress in chat
-      const statusMsg = addMessage('ai', 'Applying changes…', false, 'gen-status-msg');
 
       try {
         const currentPageSlug = getCurrentPage()?.name || 'index';
-        // Prefer the explicitly-passed nbxId; fall back to live state value.
         const nbxId = explicitNbxId !== null ? explicitNbxId : (state.selectedElement?.nbxId || null);
 
-        let { code, tokens } = await API.modify(state.currentCode, instruction, currentPageSlug, nbxId, editMode);
+        _genAbortCtrl = new AbortController();
+        let { code, tokens } = await API.modify(state.currentCode, instruction, currentPageSlug, nbxId, editMode, _genAbortCtrl.signal);
 
-        if (!isValidUserHTML(code)) throw new Error('AI returned invalid content. Please try again.');
+        if (!isValidUserHTML(code, isElementEdit)) {
+          console.error('[nebulux] AI returned invalid HTML. Length:', code.length, 'isElementEdit:', isElementEdit, 'Preview:', code.substring(0, 200));
+          // If we got invalid HTML from a scoped edit, the whole page might be broken.
+          // But usually code is either full page or scoped.
+          throw new Error('AI returned invalid content. Please try again.');
+        }
 
         const pageName = getCurrentPage()?.name || 'page';
+        log('modify_success', { length: code.length, page: pageName });
         commitCurrentCode(code);
         updatePreview(code);
         addToHistory(code, instruction);
-        // Remove the status message and show final result
-        if (statusMsg) statusMsg.remove();
-        addMessage('ai', `✓ Changes applied to ${pageName}`);
-        Project.save(); // persist code + chat to localStorage + server
+
+        addMessage('system-sys', `Changes applied to ${pageName}`);
+        addMessage('ai', `I've updated the page. How does this look?`, false, null, {
+          reasoning: AIThinkChat.getReasoning(),
+          chips: ['Make it darker', 'Looks good!', 'Undo changes']
+        });
+        Project.save();
         log('modify_ok', { tokens, editMode });
         Credits.refresh();
         _setGenerating(false);
       } catch (err) {
-        if (statusMsg) statusMsg.remove();
         _setGenerating(false);
         addErrorWithRetry(`Error: ${err.message}`, () => modifyWebsite(instruction, editMode));
         log('modify_error', { err: err.message });
@@ -3231,7 +3205,7 @@ finishCanvasGeneration(['index']);
   const Chat = {
     _ready: false,
 
-    push(role, text, files) {
+    push(role, text, files, options = {}) {
       if (!this._ready) return;
       const entry = { role, text, ts: Date.now() };
       if (files && files.length > 0) {
@@ -3242,6 +3216,8 @@ finishCanvasGeneration(['index']);
           return stored ? { name: f.name, type: f.type, thumb: stored } : null;
         }).filter(Boolean);
       }
+      if (options.reasoning) entry.reasoning = options.reasoning;
+      if (options.chips) entry.chips = options.chips;
       _chatMessages.push(entry);
       if (_chatMessages.length > CHAT_MAX_MESSAGES) _chatMessages.shift();
     },
@@ -3270,12 +3246,17 @@ finishCanvasGeneration(['index']);
 
     _flushToServer() {
       if (!state.lastGenerationId) return;
-      if (!window.Auth || !Auth.isAuthenticated || !Auth.isAuthenticated()) return;
+      if (!window.Auth || !window.Auth.isAuthenticated || !window.Auth.isAuthenticated()) return;
       try {
         const toSave = _chatMessages.filter(m =>
           (!m.text || !m.text.startsWith('Sign in to start'))
           && m.text !== '[attachment]'
-        ).map(m => ({ role: m.role, text: m.text, ts: m.ts })); // strip file blobs
+        ).map(m => {
+          const out = { role: m.role, text: m.text, ts: m.ts };
+          if (m.reasoning) out.reasoning = m.reasoning;
+          if (m.chips) out.chips = m.chips;
+          return out;
+        }); // strip file blobs
         const pagesPayload = {};
         state.pages.forEach(p => {
           if (p.code) pagesPayload[p.name] = {
@@ -3285,12 +3266,12 @@ finishCanvasGeneration(['index']);
           };
         });
         pagesPayload['_chat'] = toSave;
-        Auth.apiFetch(CONFIG.apiBaseUrl + '/websites/' + state.lastGenerationId + '/', {
+        window.Auth.apiFetch(CONFIG.apiBaseUrl + '/websites/' + state.lastGenerationId + '/', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ pages_json: pagesPayload }),
         }).catch(e => console.warn('[Nebulux] Chat server save failed:', e));
-      } catch(e) {
+      } catch (e) {
         console.warn('[Nebulux] Chat server save error:', e);
       }
     },
@@ -3310,42 +3291,14 @@ finishCanvasGeneration(['index']);
           if (Array.isArray(msgs) && msgs.length > 0) {
             // Filter out ephemeral attachment messages — they can't render after reload
             _chatMessages = msgs
-              .filter(m => m.text !== '[attachment]')
+              .filter(m => m.text !== '[attachment]' && m.text !== '…')
               .slice(-CHAT_MAX_MESSAGES);
 
             // Fix 13: build the same DOM shape that addMessage() produces so that
             // the edit-button text-extraction logic (which looks for a child
             // contentSpan) works identically for restored and live messages.
-            _chatMessages.forEach(({ role, text, files }) => {
-              const msg = document.createElement('div');
-              msg.className = `message ${role || 'ai'}`;
-
-              // Rebuild file thumbnails if saved with this message
-              if (files && files.length > 0) {
-                var filesDiv = document.createElement('div');
-                filesDiv.className = 'msg-files';
-                filesDiv.style.cssText = 'display:flex;flex-direction:row;flex-wrap:nowrap;overflow-x:auto;gap:6px;margin-bottom:7px;';
-                files.forEach(function(f) {
-                  var card = document.createElement('div');
-                  card.className = 'msg-file-card';
-                  card.style.cssText = 'flex-shrink:0;width:56px;min-width:56px;max-width:56px;height:56px;min-height:56px;max-height:56px;overflow:hidden;position:relative;border-radius:8px;background:rgba(255,255,255,0.06);';
-                  if (f.type && f.type.startsWith('image/') && (f.thumb || f.data)) {
-                    card.innerHTML = '<img src="' + (f.thumb || f.data) + '" alt="" style="width:56px;height:56px;max-width:56px;max-height:56px;object-fit:cover;display:block;"><span class="insp-label">Inspiration</span>';
-                  } else {
-                    var ext = f.name.split('.').pop().toUpperCase().slice(0,4);
-                    card.innerHTML = '<div class="msg-file-ext">' + ext + '</div>';
-                  }
-                  filesDiv.appendChild(card);
-                });
-                msg.appendChild(filesDiv);
-              }
-
-              const contentSpan = document.createElement('span');
-              contentSpan.className = 'message-content';
-              _renderTextWithCode(contentSpan, text || '');
-              msg.appendChild(contentSpan);
-
-              el.messages.appendChild(msg);
+            _chatMessages.forEach(({ role, text, files, reasoning, chips }) => {
+              addMessage(role || 'ai', text || '', false, null, { reasoning, chips, __skipPush: true, _restoredFiles: files });
             });
 
             el.sidebarBody.scrollTop = el.sidebarBody.scrollHeight;
@@ -3368,7 +3321,7 @@ finishCanvasGeneration(['index']);
 
 
 
-// Cancel edit mode if user clears the input
+  // Cancel edit mode if user clears the input
   el.chatInput.addEventListener('input', () => {
     if (!el.chatInput.value.trim() && _editingFromMsg) {
       _editingFromMsg.classList.remove('editing-source');
@@ -3397,7 +3350,7 @@ finishCanvasGeneration(['index']);
           navigator.clipboard.writeText(code).then(() => {
             copyBtn.textContent = 'Copied!';
             setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1500);
-          }).catch(() => {});
+          }).catch(() => { });
         });
         hdr.appendChild(langSpan);
         hdr.appendChild(copyBtn);
@@ -3425,10 +3378,28 @@ finishCanvasGeneration(['index']);
     });
   }
 
-  function addMessage(role, text, isHtml, extraClass) {
+  function addMessage(role, text, isHtml, extraClass, options = {}) {
+    // If it's a basic system confirmation
+    if (role === 'system-sys' || role === 'system-err') {
+      const sysMsg = document.createElement('div');
+      sysMsg.className = `message ${role}`;
+      sysMsg.innerHTML = role === 'system-sys' ? `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#4ade80;margin-right:6px;vertical-align:middle;margin-bottom:1px;"></span>${text}` : `⚠️ ${text}`;
+      el.messages.appendChild(sysMsg);
+      el.sidebarBody.scrollTop = el.sidebarBody.scrollHeight;
+      Chat.push('system', text);
+      Chat.saveToStorage();
+      if (Chat._flushToServer) Chat._flushToServer();
+      return sysMsg;
+    }
+
     const msg = document.createElement('div');
     msg.className = `message ${role}`;
     if (extraClass) msg.classList.add(extraClass);
+
+    const wrap = document.createElement('div');
+    wrap.style.display = 'flex';
+    wrap.style.flexDirection = 'column';
+    if (role !== 'user') wrap.style.width = '100%';
 
     const contentSpan = document.createElement('span');
     contentSpan.className = 'message-content';
@@ -3437,39 +3408,99 @@ finishCanvasGeneration(['index']);
     } else {
       _renderTextWithCode(contentSpan, text);
     }
-    msg.appendChild(contentSpan);
+    wrap.appendChild(contentSpan);
 
-    // Inject pending file cards into user bubble, then clear preview
-    if (role === 'user' && !isHtml) {
-      var pending = FileManager.getFiles();
-      if (pending.length > 0) {
-        var filesDiv = document.createElement('div');
-        filesDiv.className = 'msg-files';
-        filesDiv.style.cssText = 'display:flex;flex-direction:row;flex-wrap:nowrap;overflow-x:auto;gap:6px;margin-bottom:7px;';
-        pending.forEach(function(f) {
-          var card = document.createElement('div');
-          card.className = 'msg-file-card';
-          card.style.cssText = 'flex-shrink:0;width:56px;min-width:56px;max-width:56px;height:56px;min-height:56px;max-height:56px;overflow:hidden;position:relative;border-radius:8px;background:rgba(255,255,255,0.06);';
-          if (FileManager.isImage(f.type)) {
-            card.innerHTML = '<img src="' + f.data + '" alt="" style="width:56px;height:56px;max-width:56px;max-height:56px;object-fit:cover;display:block;"><span class="insp-label">Inspiration</span>';
-          } else {
-            var ext = f.name.split('.').pop().toUpperCase().slice(0, 4);
-            card.innerHTML = '<div class="msg-file-ext">' + ext + '</div><span class="insp-label">Inspiration</span>';
-          }
-          filesDiv.appendChild(card);
+    // Optional reasoning panel for AI
+    if (role === 'ai' && options.reasoning) {
+      const cleanReasoning = options.reasoning
+        .replace(/```[\s\S]*?```/g, '') // remove large code blocks
+        .replace(/<[^>]+>/g, '') // strip HTML tags
+        .split('\n')
+        .filter(line => line.trim().length > 0 && !line.includes('{') && !line.includes('}')) // skip CSS-looking lines
+        .join(' ');
+
+      if (cleanReasoning.trim()) {
+        const rPanel = document.createElement('div');
+        rPanel.className = 'msg-reasoning';
+        rPanel.innerHTML = `
+          <button class="msg-reasoning-toggle">View reasoning <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg></button>
+          <div class="msg-reasoning-body">${cleanReasoning}</div>
+        `;
+        rPanel.querySelector('button').addEventListener('click', (e) => {
+          e.stopPropagation();
+          rPanel.classList.toggle('open');
         });
-        msg.insertBefore(filesDiv, contentSpan);
-        Chat.push(role, text, pending);
-        Chat.saveToStorage();
-        FileManager.clearFiles();
-        el.messages.appendChild(msg);
-        el.sidebarBody.scrollTop = el.sidebarBody.scrollHeight;
-        return msg;
+        wrap.insertBefore(rPanel, contentSpan); // Place above the main message text
       }
     }
+
+    // Optional action chips for AI
+    if (role === 'ai' && options.chips && options.chips.length > 0) {
+      const chipsDiv = document.createElement('div');
+      chipsDiv.className = 'msg-action-chips';
+      options.chips.forEach(chipText => {
+        const c = document.createElement('button');
+        c.className = 'msg-action-chip';
+        c.textContent = chipText;
+        c.addEventListener('click', () => { submitCommand(chipText); });
+        chipsDiv.appendChild(c);
+      });
+      wrap.appendChild(chipsDiv);
+    }
+
+    msg.appendChild(wrap);
+
+    // Inject pending file cards into user bubble, then clear preview
+    const pendingFiles = options._restoredFiles || (role === 'user' && !isHtml ? FileManager.getFiles() : []);
+    if (pendingFiles.length > 0) {
+      var filesDiv = document.createElement('div');
+      filesDiv.className = 'msg-files';
+      filesDiv.style.cssText = 'display:flex;flex-direction:row;flex-wrap:nowrap;overflow-x:auto;gap:6px;margin-bottom:7px;';
+      pendingFiles.forEach(function (f) {
+        var card = document.createElement('div');
+        card.className = 'msg-file-card';
+        card.style.cssText = 'flex-shrink:0;width:56px;min-width:56px;max-width:56px;height:56px;min-height:56px;max-height:56px;overflow:hidden;position:relative;border-radius:8px;background:rgba(255,255,255,0.06);';
+        const thumb = f.thumb || f.data;
+        if (f.type && f.type.startsWith('image/') && thumb) {
+          card.innerHTML = '<img src="' + thumb + '" alt="" style="width:56px;height:56px;max-width:56px;max-height:56px;object-fit:cover;display:block;"><span class="insp-label">Inspiration</span>';
+        } else {
+          var ext = f.name.split('.').pop().toUpperCase().slice(0, 4);
+          card.innerHTML = '<div class="msg-file-ext">' + ext + '</div><span class="insp-label">Inspiration</span>';
+        }
+        filesDiv.appendChild(card);
+      });
+      wrap.insertBefore(filesDiv, contentSpan);
+      if (!options.__skipPush) {
+        Chat.push(role, text, pendingFiles, options);
+        Chat.saveToStorage();
+        if (Chat._flushToServer) Chat._flushToServer();
+        FileManager.clearFiles();
+      }
+
+      const tsDiv = document.createElement('div');
+      tsDiv.className = 'msg-ts';
+      const d = new Date();
+      tsDiv.textContent = d.getHours() + ':' + d.getMinutes().toString().padStart(2, '0');
+      wrap.appendChild(tsDiv);
+
+      el.messages.appendChild(msg);
+      el.sidebarBody.scrollTop = el.sidebarBody.scrollHeight;
+      return msg;
+    }
+
     // No files — push normally
-    Chat.push(role, isHtml ? '[attachment]' : text);
-    Chat.saveToStorage();
+    if (!options.__skipPush) {
+      Chat.push(role, isHtml ? '[attachment]' : text, null, options);
+      Chat.saveToStorage();
+      if (Chat._flushToServer) Chat._flushToServer();
+    }
+
+    const tsDiv = document.createElement('div');
+    tsDiv.className = 'msg-ts';
+    const d = new Date();
+    tsDiv.textContent = d.getHours() + ':' + d.getMinutes().toString().padStart(2, '0');
+    wrap.appendChild(tsDiv);
+
     el.messages.appendChild(msg);
     el.sidebarBody.scrollTop = el.sidebarBody.scrollHeight;
     return msg;
@@ -3585,9 +3616,9 @@ finishCanvasGeneration(['index']);
     const activePage = getCurrentPage()?.name || 'index';
     try {
       const data = await API._fetch('/intent/', {
-        message:      text,
+        message: text,
         pages,
-        active_page:  activePage,
+        active_page: activePage,
         project_name: state.projectName || '',
         // Pass recent history so the classifier can resolve pronouns ("it", "that colour")
         chat_history: _getRecentHistory(4),
@@ -3626,6 +3657,8 @@ finishCanvasGeneration(['index']);
         site_name: state.projectName || 'Website',
         site_type: 'website',
         sections: [newPage.name],
+        _new_page_lock: true,
+        _do_not_generate: existingPageNames,
         _original_prompt: state.originalPrompt || prompt,
         _page_description: prompt,
         _existing_pages: existingPageNames,
@@ -3690,7 +3723,11 @@ finishCanvasGeneration(['index']);
 
         setTimeout(() => GenStage.hide(), 900);
         el.messages.querySelector('.gen-status-msg')?.remove();
-        addMessage('ai', `✓ "${newPage.name}" page created`);
+        addMessage('system-sys', `Generated 1 page: ${newPage.name}`);
+        addMessage('ai', `I have created the "${newPage.name}" page. What would you like to adjust?`, false, null, {
+          reasoning: AIThinkChat.getReasoning(),
+          chips: ['Change colors', 'Rewrite copy', 'Add another section']
+        });
         Credits.refresh();
         log('generate_new_page_ok', { pageName: newPage.name });
       } catch (err) {
@@ -3767,38 +3804,57 @@ finishCanvasGeneration(['index']);
 
     // Build a prompt with precise design context from the existing site
     const indexPage = state.pages.find(p => p.name === 'index') || state.pages[0];
-    const existingPageNames = state.pages.filter(p => p.code).map(p => p.name).join(', ');
+    const existingPageNames = state.pages.filter(p => p.code && p.id !== newPage.id).map(p => p.name);
 
-    let prompt = text;
-    prompt += `\n\nThis is a new "${pageName}" page for the project "${state.projectName}".`;
-    prompt += ` The project already has these pages: ${existingPageNames || 'none'}.`;
+    // ── SYSTEM-LEVEL LOCK: structured metadata first, never loose NL ──
+    let prompt = `[SYSTEM] NEW PAGE CREATION MODE\n`;
+    prompt += `Page name: ${pageName}\n`;
+    prompt += `Project: ${state.projectName || 'Website'}\n`;
+    prompt += `Existing pages (DO NOT TOUCH OR REGENERATE): ${existingPageNames.join(', ') || 'none'}\n`;
+    prompt += `RULE: Generate ONLY the "${pageName}" page. Do NOT output index or any existing page.\n`;
+    prompt += `RULE: Output must contain exactly ONE ---PAGE:${pageName}--- marker.\n\n`;
+    prompt += text;
 
     if (indexPage && indexPage.code) {
-      // Extract the design system (CSS tokens + font imports) rather than
-      // dumping raw HTML. Gives the AI the exact tokens without overwhelming it.
+      // ── Extract FULL design system — all CSS custom properties, not just :root ──
+      const allColorVars = [...indexPage.code.matchAll(/--([\w-]+)\s*:\s*(#[0-9a-fA-F]{3,8}|rgba?\([^)]+\)|hsla?\([^)]+\))/gi)];
       const rootMatch = indexPage.code.match(/:root\s*\{[^}]*\}/);
       const importMatches = [...indexPage.code.matchAll(/@import[^;]+;/g)].map(m => m[0]);
       const fontFaceMatches = [...indexPage.code.matchAll(/@font-face\s*\{[^}]*\}/g)].map(m => m[0]);
       const navMatch = indexPage.code.match(/<nav[\s\S]*?<\/nav>/i);
 
       let designContext = '';
-      if (importMatches.length)   designContext += importMatches.join('\n') + '\n';
+      if (importMatches.length) designContext += importMatches.join('\n') + '\n';
       if (fontFaceMatches.length) designContext += fontFaceMatches.join('\n') + '\n';
-      if (rootMatch)              designContext += rootMatch[0];
+      if (rootMatch) designContext += rootMatch[0] + '\n';
+
+      // If no :root block, reconstruct token list from all found CSS variables
+      if (!rootMatch && allColorVars.length > 0) {
+        const tokenLines = allColorVars.map(m => `  --${m[1]}: ${m[2]};`);
+        // Deduplicate
+        const unique = [...new Set(tokenLines)];
+        designContext += `:root {\n${unique.join('\n')}\n}\n`;
+      }
 
       if (designContext.trim()) {
         prompt += `\n\nUse this EXACT design system from the existing site. Do NOT deviate from these tokens:\n\`\`\`css\n${designContext.trim()}\n\`\`\``;
       }
       if (navMatch) {
-        prompt += `\n\nReuse this navigation structure exactly (update the active link for this page):\n${navMatch[0]}`;
+        prompt += `\n\nReuse this navigation structure exactly (update the active link for "${pageName}"):\n${navMatch[0]}`;
       }
     }
 
-    prompt += `\n\nInclude working navigation links to the other pages (${existingPageNames}).`;
-    prompt += `\n\nCRITICAL: Generate ONE page only — the "${pageName}" page. Do NOT generate index, about, or any other pages.`;
+    prompt += `\n\nInclude working navigation links to: ${existingPageNames.join(', ')}.`;
 
     // Fix 4: use the dedicated single-page generator, not generateWebsite()
     await _generateAndPopulatePage(newPage, prompt);
+  }
+
+  function submitCommand(text) {
+    if (!text || !el.chatInput) return;
+    el.chatInput.value = text;
+    el.chatInput.dispatchEvent(new Event('input'));
+    sendMessage();
   }
 
   async function sendMessage() {
@@ -3986,10 +4042,17 @@ finishCanvasGeneration(['index']);
             };
           });
           // Include chat messages in the same PATCH
-          pagesPayload['_chat'] = _chatMessages
+          let chatToSave = _chatMessages;
+          if (!Chat._ready) {
+            try {
+              const raw = localStorage.getItem(_chatStorageKey());
+              if (raw) chatToSave = JSON.parse(raw);
+            } catch (e) { }
+          }
+          pagesPayload['_chat'] = chatToSave
             .filter(m => (!m.text || !m.text.startsWith('Sign in to start')) && m.text !== '[attachment]')
             .map(m => ({ role: m.role, text: m.text, ts: m.ts }));
-          Auth.apiFetch(`${CONFIG.apiBaseUrl}/websites/${state.lastGenerationId}/`, {
+          window.Auth.apiFetch(`${CONFIG.apiBaseUrl}/websites/${state.lastGenerationId}/`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ generated_code: code, pages_json: pagesPayload }),
@@ -4164,13 +4227,13 @@ finishCanvasGeneration(['index']);
                 return p;
               });
 
-              state.projectName      = scanned.projectName || 'New Website';
-              state.pages            = scanned.pages.map(p => ({ history: [], historyIndex: -1, ...p }));
-              state.currentPageId    = scanned.currentPageId || scanned.pages[0].id;
-              state.originalPrompt   = scanned.originalPrompt || '';
-              state.device           = 'desktop';
+              state.projectName = scanned.projectName || 'New Website';
+              state.pages = scanned.pages.map(p => ({ history: [], historyIndex: -1, ...p }));
+              state.currentPageId = scanned.currentPageId || scanned.pages[0].id;
+              state.originalPrompt = scanned.originalPrompt || '';
+              state.device = 'desktop';
               state.lastGenerationId = scanned.lastGenerationId || null;
-              state.createdAt        = scanned.createdAt || Date.now();
+              state.createdAt = scanned.createdAt || Date.now();
               el.projectTitle.textContent = state.projectName;
               const activePage = getCurrentPage();
               state.currentCode = activePage ? (activePage.code || '') : '';
@@ -4188,7 +4251,7 @@ finishCanvasGeneration(['index']);
                   localStorage.setItem(newChatKey, oldChat);
                   localStorage.removeItem(oldChatKey);
                 }
-              } catch (_) {}
+              } catch (_) { }
 
               log('project_loaded', { projectId: state.projectId, source: 'localStorage_scan', pages: state.pages.length });
               return !!state.currentCode;
@@ -4206,15 +4269,15 @@ finishCanvasGeneration(['index']);
       }
 
       try {
-        const useAuth = window.Auth && typeof Auth.apiFetch === 'function';
-        console.log('[Nebulux] load: trying API fallback. isApiId=', isApiId, 'useAuth=', useAuth, 'isAuth=', Auth && Auth.isAuthenticated && Auth.isAuthenticated());
-        if (!useAuth || !Auth.isAuthenticated()) {
+        const useAuth = window.Auth && typeof window.Auth.apiFetch === 'function';
+        console.log('[Nebulux] load: trying API fallback. isApiId=', isApiId, 'useAuth=', useAuth, 'isAuth=', window.Auth && window.Auth.isAuthenticated && window.Auth.isAuthenticated());
+        if (!useAuth || !window.Auth.isAuthenticated()) {
           console.log('[Nebulux] load: auth not ready, cannot fetch');
           return false;
         }
 
         // FIX #4: CONFIG.apiBaseUrl already includes /api, so do NOT prepend it again.
-        const res = await Auth.apiFetch(`${CONFIG.apiBaseUrl}/websites/${state.projectId}/`);
+        const res = await window.Auth.apiFetch(`${CONFIG.apiBaseUrl}/websites/${state.projectId}/`);
         if (!res.ok) return false;
 
         const data = await res.json();
@@ -4273,1253 +4336,1279 @@ finishCanvasGeneration(['index']);
         // Restore chat directly into memory from server data
         const chatData = (data.pages && data.pages['_chat']) || (data.pages_json && data.pages_json['_chat']);
         if (chatData && Array.isArray(chatData) && chatData.length > 0) {
-          try {
-            localStorage.setItem('nebulux_chat_' + _userNamespace() + '_' + state.projectId, JSON.stringify(chatData));
-          } catch(_) {}
-        }
+        try {
+          localStorage.setItem('nebulux_chat_' + _userNamespace() + '_' + state.projectId, JSON.stringify(chatData));
+        } catch (_) { }
+      }
 
         log('project_loaded', { projectId: state.projectId, source: 'api', pages: 1 });
-        return true;
-      } catch (e) {
-        console.error('[Nebulux] API load error:', e);
-        return false;
-      }
-    },
-  };
-
-  /* ============================================================
-     SIDEBAR
-  ============================================================ */
-  const sidebar = $('.sidebar');
-  const sidebarOpenBtn = $('#sidebarOpenBtn');
-  const sidebarCloseBtn = $('#sidebarCloseBtn');
-
-  function setSidebarOpen(open) {
-    sidebar?.classList.toggle('collapsed', !open);
-    sidebarOpenBtn?.classList.toggle('panel-open', open);
-  }
-
-  sidebarCloseBtn?.addEventListener('click', () => setSidebarOpen(false));
-  sidebarOpenBtn?.addEventListener('click', () => setSidebarOpen(sidebar?.classList.contains('collapsed')));
-
-  // Mobile swipe to open/close sidebar
-  if ('ontouchstart' in window && sidebar) {
-    let _swipeStartY = 0;
-    let _swipeStartX = 0;
-    sidebar.addEventListener('touchstart', e => {
-      _swipeStartY = e.touches[0].clientY;
-      _swipeStartX = e.touches[0].clientX;
-    }, { passive: true });
-    sidebar.addEventListener('touchend', e => {
-      const dy = e.changedTouches[0].clientY - _swipeStartY;
-      const dx = Math.abs(e.changedTouches[0].clientX - _swipeStartX);
-      if (Math.abs(dy) > 60 && dx < 60) {
-        if (dy > 0) setSidebarOpen(false); // swipe down → close
-      }
-    }, { passive: true });
-    // Swipe up from bottom of screen to open
-    document.addEventListener('touchstart', e => {
-      _swipeStartY = e.touches[0].clientY;
-      _swipeStartX = e.touches[0].clientX;
-    }, { passive: true });
-    document.addEventListener('touchend', e => {
-      const dy = e.changedTouches[0].clientY - _swipeStartY;
-      const dx = Math.abs(e.changedTouches[0].clientX - _swipeStartX);
-      const fromBottom = window.innerHeight - _swipeStartY < 80;
-      if (dy < -60 && dx < 60 && fromBottom && sidebar.classList.contains('collapsed')) {
-        setSidebarOpen(true); // swipe up from bottom edge → open
-      }
-    }, { passive: true });
-  }
-
-  $$('.sidebar-tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-      $$('.sidebar-tab').forEach(t => t.classList.remove('active'));
-      tab.classList.add('active');
-      $$('.panel').forEach(p => p.classList.remove('active'));
-      $(`#${tab.dataset.tab}Panel`)?.classList.add('active');
-    });
-  });
-
-  /* ============================================================
-     DEVICE TOGGLE
-     Mobile sizing is handled entirely by .device-frame.mobile in CSS:
-       width: 375px; height: 812px (capped)
-     The iframe inherits 100% — correct phone viewport, no scaling hack.
-  ============================================================ */
-  function applyDeviceMode(device) {
-    el.deviceFrame.classList.remove('desktop', 'mobile');
-    el.deviceFrame.classList.add(device);
-
-    // Re-render so the new viewport width takes effect in the iframe.
-    if (state.currentCode && isValidUserHTML(state.currentCode)) {
-      updatePreview(state.currentCode);
+      return true;
+    } catch(e) {
+      console.error('[Nebulux] API load error:', e);
+      return false;
     }
-  }
+  },
+};
 
-  $$('.device-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      state.device = btn.dataset.device;
-      $$('.device-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      applyDeviceMode(state.device);
-    });
+/* ============================================================
+   SIDEBAR
+============================================================ */
+const sidebar = $('.sidebar');
+const sidebarOpenBtn = $('#sidebarOpenBtn');
+const sidebarCloseBtn = $('#sidebarCloseBtn');
+
+function setSidebarOpen(open) {
+  sidebar?.classList.toggle('collapsed', !open);
+  sidebarOpenBtn?.classList.toggle('panel-open', open);
+}
+
+sidebarCloseBtn?.addEventListener('click', () => setSidebarOpen(false));
+sidebarOpenBtn?.addEventListener('click', () => setSidebarOpen(sidebar?.classList.contains('collapsed')));
+
+// Mobile swipe to open/close sidebar
+if ('ontouchstart' in window && sidebar) {
+  let _swipeStartY = 0;
+  let _swipeStartX = 0;
+  sidebar.addEventListener('touchstart', e => {
+    _swipeStartY = e.touches[0].clientY;
+    _swipeStartX = e.touches[0].clientX;
+  }, { passive: true });
+  sidebar.addEventListener('touchend', e => {
+    const dy = e.changedTouches[0].clientY - _swipeStartY;
+    const dx = Math.abs(e.changedTouches[0].clientX - _swipeStartX);
+    if (Math.abs(dy) > 60 && dx < 60) {
+      if (dy > 0) setSidebarOpen(false); // swipe down → close
+    }
+  }, { passive: true });
+  // Swipe up from bottom of screen to open
+  document.addEventListener('touchstart', e => {
+    _swipeStartY = e.touches[0].clientY;
+    _swipeStartX = e.touches[0].clientX;
+  }, { passive: true });
+  document.addEventListener('touchend', e => {
+    const dy = e.changedTouches[0].clientY - _swipeStartY;
+    const dx = Math.abs(e.changedTouches[0].clientX - _swipeStartX);
+    const fromBottom = window.innerHeight - _swipeStartY < 80;
+    if (dy < -60 && dx < 60 && fromBottom && sidebar.classList.contains('collapsed')) {
+      setSidebarOpen(true); // swipe up from bottom edge → open
+    }
+  }, { passive: true });
+}
+
+$$('.sidebar-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    $$('.sidebar-tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    $$('.panel').forEach(p => p.classList.remove('active'));
+    $(`#${tab.dataset.tab}Panel`)?.classList.add('active');
   });
+});
 
-  /* ============================================================
-     SELECT MODE BUTTON
-  ============================================================ */
-  $('#selectModeBtn')?.addEventListener('click', () => setSelectMode(!state.selectMode));
+/* ============================================================
+   DEVICE TOGGLE
+   Mobile sizing is handled entirely by .device-frame.mobile in CSS:
+     width: 375px; height: 812px (capped)
+   The iframe inherits 100% — correct phone viewport, no scaling hack.
+============================================================ */
+function applyDeviceMode(device) {
+  el.deviceFrame.classList.remove('desktop', 'mobile');
+  el.deviceFrame.classList.add(device);
 
-  /* ============================================================
-     ELEMENT EDITOR EVENTS
-  ============================================================ */
-  el.editorSubmit.addEventListener('click', sendElementEdit);
+  // Re-render so the new viewport width takes effect in the iframe.
+  if (state.currentCode && isValidUserHTML(state.currentCode)) {
+    updatePreview(state.currentCode);
+  }
+}
 
-  // Inline text edit button
-  el.editorEditText.addEventListener('click', () => {
-    const doc = el.previewFrame.contentDocument;
-    if (!doc || !state.selectedElement) return;
-    const target = doc.querySelector('[data-nbx-id="' + state.selectedElement.nbxId + '"]');
-    if (!target) return;
-    target.contentEditable = 'true';
-    target.focus();
-    target.style.outline = '2px dashed rgba(247,148,29,0.7)';
-    target.style.borderRadius = '3px';
-    el.elementEditor.classList.remove('visible');
-    el.selectionBanner.classList.remove('visible');
-    function onBlur() {
-      target.contentEditable = 'false';
-      target.style.outline = '';
-      target.style.borderRadius = '';
+$$('.device-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    state.device = btn.dataset.device;
+    $$('.device-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    applyDeviceMode(state.device);
+  });
+});
+
+/* ============================================================
+   SELECT MODE BUTTON
+============================================================ */
+$('#selectModeBtn')?.addEventListener('click', () => setSelectMode(!state.selectMode));
+
+/* ============================================================
+   ELEMENT EDITOR EVENTS
+============================================================ */
+el.editorSubmit.addEventListener('click', sendElementEdit);
+
+// Inline text edit button
+el.editorEditText.addEventListener('click', () => {
+  const doc = el.previewFrame.contentDocument;
+  if (!doc || !state.selectedElement) return;
+  const target = doc.querySelector('[data-nbx-id="' + state.selectedElement.nbxId + '"]');
+  if (!target) return;
+  target.contentEditable = 'true';
+  target.focus();
+  target.style.outline = '2px dashed rgba(247,148,29,0.7)';
+  target.style.borderRadius = '3px';
+  el.elementEditor.classList.remove('visible');
+  el.selectionBanner.classList.remove('visible');
+  function onBlur() {
+    target.contentEditable = 'false';
+    target.style.outline = '';
+    target.style.borderRadius = '';
+    if (!state.currentCode) return;
+    try {
+      const parser = new DOMParser();
+      const d = parser.parseFromString(state.currentCode, 'text/html');
+      const found = d.querySelector('[data-nbx-id="' + state.selectedElement.nbxId + '"]');
+      if (found) {
+        found.innerHTML = target.innerHTML;
+        const newCode = '<!DOCTYPE html>\n' + d.documentElement.outerHTML;
+        commitCurrentCode(newCode);
+        Project.save();
+        addToHistory(newCode, 'Text edited');
+      }
+    } catch (err) { console.warn('[nebulux] text edit failed:', err); }
+    target.removeEventListener('blur', onBlur);
+  }
+  target.addEventListener('blur', onBlur);
+});
+
+// Inline image replace button
+el.editorReplaceImage.addEventListener('click', () => {
+  const doc = el.previewFrame.contentDocument;
+  if (!doc || !state.selectedElement) return;
+  const target = doc.querySelector('[data-nbx-id="' + state.selectedElement.nbxId + '"]');
+  if (!target || target.tagName !== 'IMG') return;
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.style.cssText = 'display:none';
+  document.body.appendChild(input);
+  input.click();
+  input.addEventListener('change', () => {
+    const file = input.files[0];
+    if (!file) { input.remove(); return; }
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      const dataUrl = ev.target.result;
+      target.src = dataUrl; // show immediately
+      input.remove();
+
+      // Upload to server for a permanent URL
+      let finalSrc = dataUrl;
+      try {
+        const formData = new FormData();
+        formData.append('image', file);
+        const res = await window.Auth.apiFetch(CONFIG.apiBaseUrl + '/upload-image/', {
+          method: 'POST',
+          body: formData,
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.url) {
+            finalSrc = data.url;
+            target.src = finalSrc;
+          }
+        }
+      } catch (uploadErr) {
+        console.warn('[nebulux] image upload failed, using base64:', uploadErr);
+      }
+
       if (!state.currentCode) return;
       try {
         const parser = new DOMParser();
         const d = parser.parseFromString(state.currentCode, 'text/html');
         const found = d.querySelector('[data-nbx-id="' + state.selectedElement.nbxId + '"]');
         if (found) {
-          found.innerHTML = target.innerHTML;
+          found.setAttribute('src', finalSrc);
           const newCode = '<!DOCTYPE html>\n' + d.documentElement.outerHTML;
           commitCurrentCode(newCode);
           Project.save();
-          addToHistory(newCode, 'Text edited');
+          addToHistory(newCode, 'Image replaced');
         }
-      } catch(err) { console.warn('[nebulux] text edit failed:', err); }
-      target.removeEventListener('blur', onBlur);
+      } catch (err) { console.warn('[nebulux] image replace failed:', err); }
+    };
+    reader.readAsDataURL(file);
+  });
+  el.elementEditor.classList.remove('visible');
+  el.selectionBanner.classList.remove('visible');
+});
+el.editorInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); sendElementEdit(); } });
+
+el.editorDelete.addEventListener('click', () => {
+  if (!state.selectedElement) return;
+  const instr = `Remove the ${state.selectedElement.tag} element${state.selectedElement.path ? ' (' + state.selectedElement.path + ')' : ''}`;
+  addMessage('user', instr);
+  el.elementEditor.classList.remove('visible');
+  el.editingLabel.classList.remove('visible');
+  el.selectionBanner.classList.remove('visible');
+  // Fix 3: capture nbxId BEFORE clearing selectedElement so modifyWebsite
+  // can use AST-scoped removal.  The old code captured it but never forwarded it.
+  const nbxId = state.selectedElement?.nbxId || null;
+  state.selectedElement = null;
+  modifyWebsite(instr, null, nbxId);
+});
+
+el.editorClose.addEventListener('click', () => {
+  el.elementEditor.classList.remove('visible');
+  el.editingLabel.classList.remove('visible');
+  el.selectionBanner.classList.remove('visible');
+  IframeSession.clearSelection();
+  state.selectedElement = null;
+});
+
+/* ============================================================
+   CHAT INPUT
+============================================================ */
+el.chatInput.addEventListener('input', function () {
+  this.style.height = 'auto';
+  this.style.height = Math.min(this.scrollHeight, 200) + 'px';
+});
+el.sendBtn.addEventListener('click', sendMessage);
+el.chatInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey && !('ontouchstart' in window)) { e.preventDefault(); sendMessage(); }
+});
+
+/* ============================================================
+   FILE ATTACH BUTTON
+============================================================ */
+(() => {
+  const attachBtn = document.getElementById('attachBtn');
+  const fileInput = document.getElementById('fileInput');
+  if (!attachBtn || !fileInput) return;
+
+  attachBtn.addEventListener('click', () => fileInput.click());
+
+  fileInput.addEventListener('change', async () => {
+    if (fileInput.files && fileInput.files.length > 0) {
+      await FileManager.addFiles(fileInput.files);
     }
-    target.addEventListener('blur', onBlur);
+    fileInput.value = ''; // reset so the same file can be re-selected
   });
 
-  // Inline image replace button
-  el.editorReplaceImage.addEventListener('click', () => {
-    const doc = el.previewFrame.contentDocument;
-    if (!doc || !state.selectedElement) return;
-    const target = doc.querySelector('[data-nbx-id="' + state.selectedElement.nbxId + '"]');
-    if (!target || target.tagName !== 'IMG') return;
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'image/*';
-    input.style.cssText = 'display:none';
-    document.body.appendChild(input);
-    input.click();
-    input.addEventListener('change', () => {
-      const file = input.files[0];
-      if (!file) { input.remove(); return; }
-      const reader = new FileReader();
-      reader.onload = async (ev) => {
-        const dataUrl = ev.target.result;
-        target.src = dataUrl; // show immediately
-        input.remove();
-
-        // Upload to server for a permanent URL
-        let finalSrc = dataUrl;
-        try {
-          const formData = new FormData();
-          formData.append('image', file);
-          const res = await Auth.apiFetch(CONFIG.apiBaseUrl + '/upload-image/', {
-            method: 'POST',
-            body: formData,
-          });
-          if (res.ok) {
-            const data = await res.json();
-            if (data.url) {
-              finalSrc = data.url;
-              target.src = finalSrc;
-            }
-          }
-        } catch(uploadErr) {
-          console.warn('[nebulux] image upload failed, using base64:', uploadErr);
-        }
-
-        if (!state.currentCode) return;
-        try {
-          const parser = new DOMParser();
-          const d = parser.parseFromString(state.currentCode, 'text/html');
-          const found = d.querySelector('[data-nbx-id="' + state.selectedElement.nbxId + '"]');
-          if (found) {
-            found.setAttribute('src', finalSrc);
-            const newCode = '<!DOCTYPE html>\n' + d.documentElement.outerHTML;
-            commitCurrentCode(newCode);
-            Project.save();
-            addToHistory(newCode, 'Image replaced');
-          }
-        } catch(err) { console.warn('[nebulux] image replace failed:', err); }
-      };
-      reader.readAsDataURL(file);
+  // Drag & drop on the chat area
+  const dropZone = el.sidebarBody || document.querySelector('.sidebar');
+  if (dropZone) {
+    ['dragenter', 'dragover'].forEach(evt => {
+      dropZone.addEventListener(evt, (e) => { e.preventDefault(); e.stopPropagation(); dropZone.classList.add('drag-over'); });
     });
-    el.elementEditor.classList.remove('visible');
-    el.selectionBanner.classList.remove('visible');
-  });
-  el.editorInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); sendElementEdit(); } });
-
-  el.editorDelete.addEventListener('click', () => {
-    if (!state.selectedElement) return;
-    const instr = `Remove the ${state.selectedElement.tag} element${state.selectedElement.path ? ' (' + state.selectedElement.path + ')' : ''}`;
-    addMessage('user', instr);
-    el.elementEditor.classList.remove('visible');
-    el.editingLabel.classList.remove('visible');
-    el.selectionBanner.classList.remove('visible');
-    // Fix 3: capture nbxId BEFORE clearing selectedElement so modifyWebsite
-    // can use AST-scoped removal.  The old code captured it but never forwarded it.
-    const nbxId = state.selectedElement?.nbxId || null;
-    state.selectedElement = null;
-    modifyWebsite(instr, null, nbxId);
-  });
-
-  el.editorClose.addEventListener('click', () => {
-    el.elementEditor.classList.remove('visible');
-    el.editingLabel.classList.remove('visible');
-    el.selectionBanner.classList.remove('visible');
-    IframeSession.clearSelection();
-    state.selectedElement = null;
-  });
-
-  /* ============================================================
-     CHAT INPUT
-  ============================================================ */
-  el.chatInput.addEventListener('input', function () {
-    this.style.height = 'auto';
-    this.style.height = Math.min(this.scrollHeight, 200) + 'px';
-  });
-  el.sendBtn.addEventListener('click', sendMessage);
-  el.chatInput.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && !e.shiftKey && !('ontouchstart' in window)) { e.preventDefault(); sendMessage(); }
-  });
-
-  /* ============================================================
-     FILE ATTACH BUTTON
-  ============================================================ */
-  (() => {
-    const attachBtn = document.getElementById('attachBtn');
-    const fileInput = document.getElementById('fileInput');
-    if (!attachBtn || !fileInput) return;
-
-    attachBtn.addEventListener('click', () => fileInput.click());
-
-    fileInput.addEventListener('change', async () => {
-      if (fileInput.files && fileInput.files.length > 0) {
-        await FileManager.addFiles(fileInput.files);
+    ['dragleave', 'drop'].forEach(evt => {
+      dropZone.addEventListener(evt, (e) => { e.preventDefault(); e.stopPropagation(); dropZone.classList.remove('drag-over'); });
+    });
+    dropZone.addEventListener('drop', async (e) => {
+      if (e.dataTransfer && e.dataTransfer.files.length > 0) {
+        await FileManager.addFiles(e.dataTransfer.files);
       }
-      fileInput.value = ''; // reset so the same file can be re-selected
     });
+  }
+})();
 
-    // Drag & drop on the chat area
-    const dropZone = el.sidebarBody || document.querySelector('.sidebar');
-    if (dropZone) {
-      ['dragenter', 'dragover'].forEach(evt => {
-        dropZone.addEventListener(evt, (e) => { e.preventDefault(); e.stopPropagation(); dropZone.classList.add('drag-over'); });
-      });
-      ['dragleave', 'drop'].forEach(evt => {
-        dropZone.addEventListener(evt, (e) => { e.preventDefault(); e.stopPropagation(); dropZone.classList.remove('drag-over'); });
-      });
-      dropZone.addEventListener('drop', async (e) => {
-        if (e.dataTransfer && e.dataTransfer.files.length > 0) {
-          await FileManager.addFiles(e.dataTransfer.files);
-        }
-      });
-    }
-  })();
+/* ============================================================
+   QUICK CHIPS
+============================================================ */
+$$('.qchip').forEach(chip => {
+  chip.addEventListener('click', () => { el.chatInput.value = chip.textContent; el.chatInput.focus(); });
+});
 
-  /* ============================================================
-     QUICK CHIPS
-  ============================================================ */
-  $$('.qchip').forEach(chip => {
-    chip.addEventListener('click', () => { el.chatInput.value = chip.textContent; el.chatInput.focus(); });
+/* ============================================================
+   PAGE SELECTOR
+============================================================ */
+el.pageSelector.addEventListener('click', () => {
+  const rect = el.pageSelector.getBoundingClientRect();
+  el.pageDropdown.style.top = (rect.bottom + 8) + 'px';
+  el.pageDropdown.style.left = rect.left + 'px';
+  el.pageDropdown.classList.toggle('visible');
+  el.pageSelector.classList.toggle('open', el.pageDropdown.classList.contains('visible'));
+});
+
+// Single delegated listener on the list container — survives innerHTML rebuilds.
+// Per-item click listeners were removed from updatePageUI() to avoid the bug where
+// updatePageUI() detaches the clicked element mid-bubble, causing closest() to return
+// null on the now-detached node, which confused the document outside-click handler.
+el.pageList.addEventListener('click', e => {
+  const item = e.target.closest('.page-item');
+  if (!item) return;
+  if (e.target.closest('.page-item-actions')) return;
+  if (e.target.classList.contains('page-item-name-input') && !e.target.hasAttribute('readonly')) return;
+  switchPage(item.dataset.pageId);
+});
+
+el.addPageBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  NewPagePanel.open();
+});
+document.addEventListener('click', e => {
+  if (!e.target.closest('.page-selector') && !e.target.closest('.page-dropdown')) {
+    el.pageDropdown.classList.remove('visible');
+    el.pageSelector.classList.remove('open');
+  }
+});
+
+/* ============================================================
+   PROJECT NAMING
+============================================================ */
+/* Inline project title rename */
+el.projectTitle.addEventListener('click', () => {
+  const title = el.projectTitle;
+  const original = state.projectName;
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'project-title-input';
+  input.value = original;
+
+  title.replaceWith(input);
+  input.focus();
+  input.select();
+
+  function commit() {
+    const name = input.value.trim() || original;
+    state.projectName = name;
+    input.replaceWith(title);
+    title.textContent = name;
+    Project.save();
+  }
+
+  function cancel() {
+    input.replaceWith(title);
+  }
+
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); commit(); }
+    if (e.key === 'Escape') { e.preventDefault(); cancel(); }
   });
+  input.addEventListener('blur', commit);
+});
 
-  /* ============================================================
-     PAGE SELECTOR
-  ============================================================ */
-  el.pageSelector.addEventListener('click', () => {
-    const rect = el.pageSelector.getBoundingClientRect();
-    el.pageDropdown.style.top = (rect.bottom + 8) + 'px';
-    el.pageDropdown.style.left = rect.left + 'px';
-    el.pageDropdown.classList.toggle('visible');
-    el.pageSelector.classList.toggle('open', el.pageDropdown.classList.contains('visible'));
-  });
+/* ============================================================
+   EXPORT MODAL
+============================================================ */
+let currentExportTab = 'html';
 
-  // Single delegated listener on the list container — survives innerHTML rebuilds.
-  // Per-item click listeners were removed from updatePageUI() to avoid the bug where
-  // updatePageUI() detaches the clicked element mid-bubble, causing closest() to return
-  // null on the now-detached node, which confused the document outside-click handler.
-  el.pageList.addEventListener('click', e => {
-    const item = e.target.closest('.page-item');
-    if (!item) return;
-    if (e.target.closest('.page-item-actions')) return;
-    if (e.target.classList.contains('page-item-name-input') && !e.target.hasAttribute('readonly')) return;
-    switchPage(item.dataset.pageId);
-  });
+el.exportBtn.addEventListener('click', () => {
+  if (!state.currentCode) return;
+  const idx = state.pages.findIndex(p => p.id === state.currentPageId);
+  const exportable = state.pages.filter(p => p.code?.trim()).length;
+  el.exportProjectTitle.textContent = state.projectName;
+  el.exportFileInfo.textContent = `${idx + 1}/${state.pages.length} (${exportable} exportable)`;
+  currentExportTab = 'html';
+  $$('.export-tab').forEach(t => t.classList.remove('active'));
+  $$('.export-tab[data-export-tab="html"]')[0]?.classList.add('active');
+  el.exportCode.innerHTML = formatCodeWithLineNumbers(state.currentCode, 'html');
+  el.exportModal.classList.add('visible');
+});
 
-  el.addPageBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    NewPagePanel.open();
-  });
-  document.addEventListener('click', e => {
-    if (!e.target.closest('.page-selector') && !e.target.closest('.page-dropdown')) {
-      el.pageDropdown.classList.remove('visible');
-      el.pageSelector.classList.remove('open');
-    }
-  });
+el.exportCloseBtn.addEventListener('click', () => el.exportModal.classList.remove('visible'));
+el.exportModal.addEventListener('click', e => { if (e.target === el.exportModal) el.exportModal.classList.remove('visible'); });
 
-  /* ============================================================
-     PROJECT NAMING
-  ============================================================ */
-  /* Inline project title rename */
-  el.projectTitle.addEventListener('click', () => {
-    const title = el.projectTitle;
-    const original = state.projectName;
-
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.className = 'project-title-input';
-    input.value = original;
-
-    title.replaceWith(input);
-    input.focus();
-    input.select();
-
-    function commit() {
-      const name = input.value.trim() || original;
-      state.projectName = name;
-      input.replaceWith(title);
-      title.textContent = name;
-      Project.save();
-    }
-
-    function cancel() {
-      input.replaceWith(title);
-    }
-
-    input.addEventListener('keydown', e => {
-      if (e.key === 'Enter') { e.preventDefault(); commit(); }
-      if (e.key === 'Escape') { e.preventDefault(); cancel(); }
-    });
-    input.addEventListener('blur', commit);
-  });
-
-  /* ============================================================
-     EXPORT MODAL
-  ============================================================ */
-  let currentExportTab = 'html';
-
-  el.exportBtn.addEventListener('click', () => {
-    if (!state.currentCode) return;
-    const idx = state.pages.findIndex(p => p.id === state.currentPageId);
-    const exportable = state.pages.filter(p => p.code?.trim()).length;
-    el.exportProjectTitle.textContent = state.projectName;
-    el.exportFileInfo.textContent = `${idx + 1}/${state.pages.length} (${exportable} exportable)`;
-    currentExportTab = 'html';
+$$('.export-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    currentExportTab = tab.dataset.exportTab;
     $$('.export-tab').forEach(t => t.classList.remove('active'));
-    $$('.export-tab[data-export-tab="html"]')[0]?.classList.add('active');
-    el.exportCode.innerHTML = formatCodeWithLineNumbers(state.currentCode, 'html');
-    el.exportModal.classList.add('visible');
-  });
-
-  el.exportCloseBtn.addEventListener('click', () => el.exportModal.classList.remove('visible'));
-  el.exportModal.addEventListener('click', e => { if (e.target === el.exportModal) el.exportModal.classList.remove('visible'); });
-
-  $$('.export-tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-      currentExportTab = tab.dataset.exportTab;
-      $$('.export-tab').forEach(t => t.classList.remove('active'));
-      tab.classList.add('active');
-      if (currentExportTab === 'html') {
-        el.exportCode.innerHTML = formatCodeWithLineNumbers(state.currentCode, 'html');
-      } else {
-        const css = extractCSS(state.currentCode);
-        el.exportCode.innerHTML = css ? formatCodeWithLineNumbers(css, 'css') : '<span class="code-line">/* No CSS found */</span>';
-      }
-      el.exportCodeArea.scrollTop = 0;
-    });
-  });
-
-  el.copyCodeBtn.addEventListener('click', async () => {
-    const text = currentExportTab === 'html' ? state.currentCode : (extractCSS(state.currentCode) || '/* No CSS found */');
-    try {
-      await navigator.clipboard.writeText(text);
-      const orig = el.copyCodeBtn.innerHTML;
-      el.copyCodeBtn.innerHTML = `<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 8l3 3 6-6"/></svg> Copied!`;
-      setTimeout(() => { el.copyCodeBtn.innerHTML = orig; }, 2000);
-    } catch (err) { console.error('Copy failed:', err); }
-  });
-
-  el.downloadBtn.addEventListener('click', () => {
-    if (!state.currentCode) return;
-
-    const exportablePages = state.pages.filter(p => p.code && p.code.trim());
-
-    if (exportablePages.length > 1) {
-      // Multi-page: download all pages as a zip using JSZip
-      _downloadAllPagesZip(exportablePages);
+    tab.classList.add('active');
+    if (currentExportTab === 'html') {
+      el.exportCode.innerHTML = formatCodeWithLineNumbers(state.currentCode, 'html');
     } else {
-      // Single page: download directly
-      const pageName = getCurrentPage()?.name || 'nebulux-site';
-      const baseName = pageName.replace(/\.html$/i, '');
-      const filename = state.lastGenerationId
-        ? `nebulux-site-${state.lastGenerationId}.html`
-        : `${baseName}.html`;
+      const css = extractCSS(state.currentCode);
+      el.exportCode.innerHTML = css ? formatCodeWithLineNumbers(css, 'css') : '<span class="code-line">/* No CSS found */</span>';
+    }
+    el.exportCodeArea.scrollTop = 0;
+  });
+});
+
+el.copyCodeBtn.addEventListener('click', async () => {
+  const text = currentExportTab === 'html' ? state.currentCode : (extractCSS(state.currentCode) || '/* No CSS found */');
+  try {
+    await navigator.clipboard.writeText(text);
+    const orig = el.copyCodeBtn.innerHTML;
+    el.copyCodeBtn.innerHTML = `<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 8l3 3 6-6"/></svg> Copied!`;
+    setTimeout(() => { el.copyCodeBtn.innerHTML = orig; }, 2000);
+  } catch (err) { console.error('Copy failed:', err); }
+});
+
+el.downloadBtn.addEventListener('click', () => {
+  if (!state.currentCode) return;
+
+  const exportablePages = state.pages.filter(p => p.code && p.code.trim());
+
+  if (exportablePages.length > 1) {
+    // Multi-page: download all pages as a zip using JSZip
+    _downloadAllPagesZip(exportablePages);
+  } else {
+    // Single page: download directly
+    const pageName = getCurrentPage()?.name || 'nebulux-site';
+    const baseName = pageName.replace(/\.html$/i, '');
+    const filename = state.lastGenerationId
+      ? `nebulux-site-${state.lastGenerationId}.html`
+      : `${baseName}.html`;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([state.currentCode], { type: 'text/html' }));
+    a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  }
+});
+
+async function _downloadAllPagesZip(pages) {
+  // Dynamically load JSZip if not already present
+  if (typeof JSZip === 'undefined') {
+    try {
+      await new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+        script.onload = resolve;
+        script.onerror = () => reject(new Error('Failed to load JSZip'));
+        document.head.appendChild(script);
+      });
+    } catch (e) {
+      // Fallback: download current page only
+      addMessage('ai', 'Could not load zip library. Downloading current page only.');
       const a = document.createElement('a');
       a.href = URL.createObjectURL(new Blob([state.currentCode], { type: 'text/html' }));
-      a.download = filename;
+      a.download = (getCurrentPage()?.name || 'index') + '.html';
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    }
-  });
-
-  async function _downloadAllPagesZip(pages) {
-    // Dynamically load JSZip if not already present
-    if (typeof JSZip === 'undefined') {
-      try {
-        await new Promise((resolve, reject) => {
-          const script = document.createElement('script');
-          script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
-          script.onload = resolve;
-          script.onerror = () => reject(new Error('Failed to load JSZip'));
-          document.head.appendChild(script);
-        });
-      } catch (e) {
-        // Fallback: download current page only
-        addMessage('ai', 'Could not load zip library. Downloading current page only.');
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(new Blob([state.currentCode], { type: 'text/html' }));
-        a.download = (getCurrentPage()?.name || 'index') + '.html';
-        document.body.appendChild(a); a.click(); document.body.removeChild(a);
-        return;
-      }
-    }
-
-    const zip = new JSZip();
-    const projectName = (state.projectName || 'nebulux-site').replace(/[^a-zA-Z0-9_-]/g, '_');
-
-    pages.forEach(page => {
-      const name = (page.name || 'page').replace(/\.html$/i, '');
-      zip.file(name + '.html', page.code);
-    });
-
-    const blob = await zip.generateAsync({ type: 'blob' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = projectName + '.zip';
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    addMessage('ai', '\u2713 Downloaded ' + pages.length + ' pages as ' + projectName + '.zip');
-    log('export_zip', { projectId: state.projectId, pages: pages.length, projectName });
-  }
-
-  el.openFigmaBtn.addEventListener('click', () => {
-    if (!state.currentCode) return;
-    window.open(URL.createObjectURL(new Blob([state.currentCode], { type: 'text/html' })), '_blank', 'width=1200,height=800');
-    addMessage('ai', '✓ Opened in new window. Use Figma\'s "HTML to Figma" plugin to import.');
-  });
-
-  /* ============================================================
-     PREVIEW & SAVE
-     Save button shows "Saved ✓" for ~1.2s. Error surfaced in chat.
-  ============================================================ */
-  el.previewBtn.addEventListener('click', () => {
-    if (!state.currentCode) return;
-    window.open(URL.createObjectURL(new Blob([state.currentCode], { type: 'text/html' })), '_blank');
-  });
-
-  function _doSaveWithFeedback() {
-    console.info('[Nebulux] Save triggered.');
-    if (!el.saveBtn) {
-      console.error('[Nebulux] #saveBtn not found in DOM — cannot attach feedback.');
-      Project.save();
       return;
     }
-    const ok = Project.save();
-    if (ok) {
-      const orig = el.saveBtn.textContent;
-      el.saveBtn.textContent = 'Saved ✓';
-      el.saveBtn.disabled = true;
-      setTimeout(() => {
-        el.saveBtn.textContent = orig;
-        el.saveBtn.disabled = false;
-      }, 1200);
-    }
-    // If save failed, addMessage('ai', ...) was already called inside Project.save()
   }
 
-  if (el.saveBtn) {
-    el.saveBtn.addEventListener('click', _doSaveWithFeedback);
-  } else {
-    console.error('[Nebulux] #saveBtn not found in DOM — save button listener not attached.');
-  }
+  const zip = new JSZip();
+  const projectName = (state.projectName || 'nebulux-site').replace(/[^a-zA-Z0-9_-]/g, '_');
 
-  /* ============================================================
-     KEYBOARD SHORTCUTS
-  ============================================================ */
-  document.addEventListener('keydown', e => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); undo(); }
-    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-      e.preventDefault();
-      _doSaveWithFeedback();
-    }
-    if (e.key === 'Escape') {
-      el.exportModal.classList.remove('visible');
-      el.elementEditor.classList.remove('visible');
-      // inline rename input cancels via its own blur/keydown handler
-    }
+  pages.forEach(page => {
+    const name = (page.name || 'page').replace(/\.html$/i, '');
+    zip.file(name + '.html', page.code);
   });
 
-  /* ============================================================
-     LOADING OVERLAY
-  ============================================================ */
-  function showLoading(text, isSimple) {
-    // Used for modifications only (not initial generation)
-    if (!el.loadingOverlay) return;  // FIX 9: guard against missing element
-    const modText = el.loadingOverlay.querySelector('.lo-mod-text');
-    if (modText) modText.textContent = text || 'Applying changes…';
-    el.loadingOverlay.classList.add('visible');
+  const blob = await zip.generateAsync({ type: 'blob' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = projectName + '.zip';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  addMessage('ai', '\u2713 Downloaded ' + pages.length + ' pages as ' + projectName + '.zip');
+  log('export_zip', { projectId: state.projectId, pages: pages.length, projectName });
+}
+
+el.openFigmaBtn.addEventListener('click', () => {
+  if (!state.currentCode) return;
+  window.open(URL.createObjectURL(new Blob([state.currentCode], { type: 'text/html' })), '_blank', 'width=1200,height=800');
+  addMessage('ai', '✓ Opened in new window. Use Figma\'s "HTML to Figma" plugin to import.');
+});
+
+/* ============================================================
+   PREVIEW & SAVE
+   Save button shows "Saved ✓" for ~1.2s. Error surfaced in chat.
+============================================================ */
+el.previewBtn.addEventListener('click', () => {
+  if (!state.currentCode) return;
+  window.open(URL.createObjectURL(new Blob([state.currentCode], { type: 'text/html' })), '_blank');
+});
+
+function _doSaveWithFeedback() {
+  console.info('[Nebulux] Save triggered.');
+  if (!el.saveBtn) {
+    console.error('[Nebulux] #saveBtn not found in DOM — cannot attach feedback.');
+    Project.save();
+    return;
   }
-
-  function hideLoading() {
-    el.loadingOverlay.classList.remove('visible');
+  const ok = Project.save();
+  if (ok) {
+    const orig = el.saveBtn.textContent;
+    el.saveBtn.textContent = 'Saved ✓';
+    el.saveBtn.disabled = true;
+    setTimeout(() => {
+      el.saveBtn.textContent = orig;
+      el.saveBtn.disabled = false;
+    }, 1200);
   }
+  // If save failed, addMessage('ai', ...) was already called inside Project.save()
+}
 
-  function _ppSetStep(step, phase) { /* process panel removed */ }
+if (el.saveBtn) {
+  el.saveBtn.addEventListener('click', _doSaveWithFeedback);
+} else {
+  console.error('[Nebulux] #saveBtn not found in DOM — save button listener not attached.');
+}
 
-  /* CodeDrawer removed — replaced by GenStage in center canvas */
-  const CodeDrawer = {
-    show() { }, hide() { }, toggle() { }, reset() { },
-    showGenerating() { }, appendChunk() { }, populate() { },
+/* ============================================================
+   KEYBOARD SHORTCUTS
+============================================================ */
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); undo(); }
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+    e.preventDefault();
+    _doSaveWithFeedback();
+  }
+  if (e.key === 'Escape') {
+    el.exportModal.classList.remove('visible');
+    el.elementEditor.classList.remove('visible');
+    // inline rename input cancels via its own blur/keydown handler
+  }
+});
+
+/* ============================================================
+   LOADING OVERLAY
+============================================================ */
+function showLoading(text, isSimple) {
+  // Used for modifications only (not initial generation)
+  if (!el.loadingOverlay) return;  // FIX 9: guard against missing element
+  const modText = el.loadingOverlay.querySelector('.lo-mod-text');
+  if (modText) modText.textContent = text || 'Applying changes…';
+  el.loadingOverlay.classList.add('visible');
+}
+
+function hideLoading() {
+  el.loadingOverlay.classList.remove('visible');
+}
+
+function _ppSetStep(step, phase) { /* process panel removed */ }
+
+/* CodeDrawer removed — replaced by GenStage in center canvas */
+const CodeDrawer = {
+  show() { }, hide() { }, toggle() { }, reset() { },
+  showGenerating() { }, appendChunk() { }, populate() { },
+};
+
+/* ============================================================
+   TOAST NOTIFICATIONS
+============================================================ */
+let _toastTimer = null;
+function showToast(msg) {
+  let toast = document.getElementById('__nx_toast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = '__nx_toast';
+    toast.style.cssText = [
+      'position:fixed', 'bottom:24px', 'left:50%', 'transform:translateX(-50%)',
+      'background:var(--surface-2,#2a2a2e)', 'color:var(--text,#e8e8ea)',
+      'border:1px solid var(--border,rgba(255,255,255,0.08))',
+      'border-radius:8px', 'padding:9px 16px', 'font-size:13px',
+      'font-family:Outfit,sans-serif', 'z-index:9999',
+      'box-shadow:0 4px 20px rgba(0,0,0,0.5)',
+      'opacity:0', 'transition:opacity 0.18s ease', 'pointer-events:none',
+      'white-space:nowrap',
+    ].join(';');
+    document.body.appendChild(toast);
+  }
+  toast.textContent = msg;
+  toast.style.opacity = '1';
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => { toast.style.opacity = '0'; }, 2800);
+}
+
+/* ============================================================
+   AUTO-SAVE
+============================================================ */
+setInterval(() => {
+  if (state.hasUnsavedChanges && state.currentCode) Project.save();
+}, CONFIG.autoSaveInterval);
+
+/* ============================================================
+   UTILITY
+============================================================ */
+function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function getPrompt() {
+  // Priority 1: URL param — always present when navigating from the index page.
+  const p = new URLSearchParams(window.location.search).get('prompt');
+  if (p?.trim()) return decodeURIComponent(p.trim());
+
+  // Priority 2: User-scoped localStorage backup.
+  // NEVER falls back to the un-namespaced 'nebulux_prompt' key — that key
+  // was written by an older version of the app and would let User B on a
+  // shared device inherit User A's last prompt.
+  const ns = _userNamespace();
+  try {
+    const s = localStorage.getItem('nebulux_prompt_' + ns);
+    if (s?.trim()) return s.trim();
+    // Clean up any stale un-namespaced key left by the old version.
+    localStorage.removeItem('nebulux_prompt');
+  } catch (e) { }
+
+  return 'Create a beautiful modern website';
+}
+
+/* ============================================================
+   SYNTAX HIGHLIGHTING
+============================================================ */
+function escapeHtml(text) { const d = document.createElement('div'); d.textContent = text; return d.innerHTML; }
+
+function highlightHTML(code) {
+  let h = escapeHtml(code);
+  h = h.replace(/(&lt;!--[\s\S]*?--&gt;)/g, '\x01COMM\x02$1\x01/COMM\x02');
+  h = h.replace(/="([^"]*)"/g, '\x01STROPEN\x02"$1"\x01STRCLOSE\x02');
+  h = h.replace(/\s([\w-]+)(?==)/g, ' \x01ATTROPEN\x02$1\x01ATTRCLOSE\x02');
+  h = h.replace(/(&lt;\/?)([\w]+)/g, '$1\x01TAGOPEN\x02$2\x01TAGCLOSE\x02');
+  h = h.replace(/\/&gt;/g, '\x01TAGOPEN\x02/&gt;\x01TAGCLOSE\x02');
+  h = h.replace(/&gt;/g, '\x01TAGOPEN\x02&gt;\x01TAGCLOSE\x02');
+  return h
+    .replace(/\x01COMM\x02/g, '<span class="token-comment">').replace(/\x01\/COMM\x02/g, '</span>')
+    .replace(/\x01STROPEN\x02/g, '=<span class="token-string">').replace(/\x01STRCLOSE\x02/g, '</span>')
+    .replace(/\x01ATTROPEN\x02/g, '<span class="token-attr-name">').replace(/\x01ATTRCLOSE\x02/g, '</span>')
+    .replace(/\x01TAGOPEN\x02/g, '<span class="token-tag">').replace(/\x01TAGCLOSE\x02/g, '</span>');
+}
+
+function highlightCSS(code) {
+  let h = escapeHtml(code);
+  h = h.replace(/(\/\*[\s\S]*?\*\/)/g, '<span class="token-comment">$1</span>');
+  h = h.replace(/([a-z-]+):/gi, '<span class="token-property">$1</span>:');
+  h = h.replace(/:\s*([^;{]+)/g, ': <span class="token-string">$1</span>');
+  return h;
+}
+
+function prettifyHTML(html) {
+  let pretty = html.replace(/>\s*</g, '>\n<').replace(/>\s*([^<\s])/g, '>\n$1').replace(/([^>])\s*</g, '$1\n<');
+  let depth = 0;
+  const voidTags = /^(area|base|br|col|embed|hr|img|input|link|meta|param|source|track|wbr)$/i;
+  return pretty.split('\n').map(line => {
+    const t = line.trim();
+    if (!t) return '';
+    const isClose = /^<\//.test(t);
+    const isSelf = /\/>$/.test(t) || voidTags.test((t.match(/^<(\w+)/) || [])[1] || '');
+    if (isClose) depth = Math.max(0, depth - 1);
+    const out = '  '.repeat(depth) + t;
+    if (!isClose && !isSelf && /^<\w/.test(t)) depth++;
+    return out;
+  }).filter(Boolean).join('\n');
+}
+
+function prettifyCSS(css) {
+  return css
+    .replace(/\s*\{\s*/g, ' {\n  ').replace(/;\s*/g, ';\n  ')
+    .replace(/\s*\}\s*/g, '\n}\n').replace(/\n {2}(\s*\n)/g, '\n$1').trim();
+}
+
+function formatCodeWithLineNumbers(code, type = 'html') {
+  const pretty = type === 'css' ? prettifyCSS(code) : prettifyHTML(code);
+  const highlighted = (type === 'css' ? highlightCSS : highlightHTML)(pretty);
+  return highlighted.split('\n').filter(l => l.trim()).map(l => `<span class="code-line">${l}</span>`).join('');
+}
+
+function extractCSS(html) {
+  const m = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
+  return m ? m[1].trim() : '';
+}
+
+/* ============================================================
+   NEW PAGE PANEL
+   Replaces the old inline name-form with a rich setup panel:
+   page name, type, style, color, design inheritance, and notes.
+   On create: generates the new page using the AI pipeline.
+============================================================ */
+const NewPagePanel = (() => {
+  // Default sections for each page type — ensures spec extractor always gets sections
+  const SECTIONS_BY_TYPE = {
+    'Landing': ['hero', 'features', 'testimonials', 'call to action'],
+    'About': ['hero', 'our story', 'team', 'values'],
+    'Contact': ['hero', 'contact form', 'location info', 'FAQ'],
+    'Portfolio': ['hero', 'projects grid', 'skills', 'contact'],
+    'Blog': ['hero', 'featured post', 'articles list', 'sidebar'],
+    'Services': ['hero', 'services list', 'process', 'pricing', 'contact'],
+    'Pricing': ['hero', 'pricing tiers', 'feature comparison', 'FAQ'],
+    'Gallery': ['hero', 'image grid', 'categories filter', 'contact'],
   };
 
-  /* ============================================================
-     TOAST NOTIFICATIONS
-  ============================================================ */
-  let _toastTimer = null;
-  function showToast(msg) {
-    let toast = document.getElementById('__nx_toast');
-    if (!toast) {
-      toast = document.createElement('div');
-      toast.id = '__nx_toast';
-      toast.style.cssText = [
-        'position:fixed', 'bottom:24px', 'left:50%', 'transform:translateX(-50%)',
-        'background:var(--surface-2,#2a2a2e)', 'color:var(--text,#e8e8ea)',
-        'border:1px solid var(--border,rgba(255,255,255,0.08))',
-        'border-radius:8px', 'padding:9px 16px', 'font-size:13px',
-        'font-family:Outfit,sans-serif', 'z-index:9999',
-        'box-shadow:0 4px 20px rgba(0,0,0,0.5)',
-        'opacity:0', 'transition:opacity 0.18s ease', 'pointer-events:none',
-        'white-space:nowrap',
-      ].join(';');
-      document.body.appendChild(toast);
+  const PAGE_TYPES = ['Landing', 'About', 'Contact', 'Portfolio', 'Blog', 'Services', 'Pricing', 'Gallery', 'Custom'];
+  const STYLES = ['Modern', 'Minimal', 'Bold', 'Playful', 'Professional', 'Dark', 'Futuristic'];
+  const COLORS = [
+    { label: 'Blue', hex: '#5b9ee8' },
+    { label: 'Violet', hex: '#8b5cf6' },
+    { label: 'Cyan', hex: '#06b6d4' },
+    { label: 'Emerald', hex: '#10b981' },
+    { label: 'Orange', hex: '#f97316' },
+    { label: 'Rose', hex: '#f43f5e' },
+    { label: 'Amber', hex: '#f59e0b' },
+    { label: 'Dark', hex: '#1a1a2e' },
+    { label: 'White', hex: '#f8fafc' },
+  ];
+
+  const panel = document.getElementById('newPagePanel');
+  const closeBtn = document.getElementById('newPageClose');
+  const nameInput = document.getElementById('nppName');
+  const typeChips = document.getElementById('nppTypeChips');
+  const styleChips = document.getElementById('nppStyleChips');
+  const colorSwatches = document.getElementById('nppColors');
+  const inheritList = document.getElementById('nppInheritList');
+  const inheritSection = document.getElementById('nppInheritSection');
+  const notesInput = document.getElementById('nppNotes');
+  const createBtn = document.getElementById('nppCreateBtn');
+
+  let selectedType = 'Landing';
+  let customTypeValue = '';           // filled when selectedType === 'Custom'
+  let selectedStyles = ['Modern'];
+  let selectedColor = COLORS[0];
+  let inheritedColorHex = null;        // non-null when "inherit color from page" is active
+  let selectedInherit = null;         // null = none, or page id for design inherit
+
+  // ── Extract primary color from page HTML (single hex for swatch preview) ──
+  function _extractColorFromCode(code) {
+    if (!code) return null;
+    const varMatch = code.match(/--(?:accent|primary|brand|color-primary|theme)\s*:\s*(#[0-9a-fA-F]{3,8})/i);
+    if (varMatch) return varMatch[1];
+    const hexes = [...code.matchAll(/#([0-9a-fA-F]{6})\b/g)].map(m => '#' + m[1]);
+    for (const h of hexes) {
+      const r = parseInt(h.slice(1, 3), 16), g = parseInt(h.slice(3, 5), 16), b = parseInt(h.slice(5, 7), 16);
+      const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+      const saturation = Math.max(r, g, b) - Math.min(r, g, b);
+      if (brightness > 40 && brightness < 210 && saturation > 40) return h;
     }
-    toast.textContent = msg;
-    toast.style.opacity = '1';
-    clearTimeout(_toastTimer);
-    _toastTimer = setTimeout(() => { toast.style.opacity = '0'; }, 2800);
+    return null;
   }
 
-  /* ============================================================
-     AUTO-SAVE
-  ============================================================ */
-  setInterval(() => {
-    if (state.hasUnsavedChanges && state.currentCode) Project.save();
-  }, CONFIG.autoSaveInterval);
-
-  /* ============================================================
-     UTILITY
-  ============================================================ */
-  function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
-
-  function getPrompt() {
-    // Priority 1: URL param — always present when navigating from the index page.
-    const p = new URLSearchParams(window.location.search).get('prompt');
-    if (p?.trim()) return decodeURIComponent(p.trim());
-
-    // Priority 2: User-scoped localStorage backup.
-    // NEVER falls back to the un-namespaced 'nebulux_prompt' key — that key
-    // was written by an older version of the app and would let User B on a
-    // shared device inherit User A's last prompt.
-    const ns = _userNamespace();
-    try {
-      const s = localStorage.getItem('nebulux_prompt_' + ns);
-      if (s?.trim()) return s.trim();
-      // Clean up any stale un-namespaced key left by the old version.
-      localStorage.removeItem('nebulux_prompt');
-    } catch (e) { }
-
-    return 'Create a beautiful modern website';
-  }
-
-  /* ============================================================
-     SYNTAX HIGHLIGHTING
-  ============================================================ */
-  function escapeHtml(text) { const d = document.createElement('div'); d.textContent = text; return d.innerHTML; }
-
-  function highlightHTML(code) {
-    let h = escapeHtml(code);
-    h = h.replace(/(&lt;!--[\s\S]*?--&gt;)/g, '\x01COMM\x02$1\x01/COMM\x02');
-    h = h.replace(/="([^"]*)"/g, '\x01STROPEN\x02"$1"\x01STRCLOSE\x02');
-    h = h.replace(/\s([\w-]+)(?==)/g, ' \x01ATTROPEN\x02$1\x01ATTRCLOSE\x02');
-    h = h.replace(/(&lt;\/?)([\w]+)/g, '$1\x01TAGOPEN\x02$2\x01TAGCLOSE\x02');
-    h = h.replace(/\/&gt;/g, '\x01TAGOPEN\x02/&gt;\x01TAGCLOSE\x02');
-    h = h.replace(/&gt;/g, '\x01TAGOPEN\x02&gt;\x01TAGCLOSE\x02');
-    return h
-      .replace(/\x01COMM\x02/g, '<span class="token-comment">').replace(/\x01\/COMM\x02/g, '</span>')
-      .replace(/\x01STROPEN\x02/g, '=<span class="token-string">').replace(/\x01STRCLOSE\x02/g, '</span>')
-      .replace(/\x01ATTROPEN\x02/g, '<span class="token-attr-name">').replace(/\x01ATTRCLOSE\x02/g, '</span>')
-      .replace(/\x01TAGOPEN\x02/g, '<span class="token-tag">').replace(/\x01TAGCLOSE\x02/g, '</span>');
-  }
-
-  function highlightCSS(code) {
-    let h = escapeHtml(code);
-    h = h.replace(/(\/\*[\s\S]*?\*\/)/g, '<span class="token-comment">$1</span>');
-    h = h.replace(/([a-z-]+):/gi, '<span class="token-property">$1</span>:');
-    h = h.replace(/:\s*([^;{]+)/g, ': <span class="token-string">$1</span>');
-    return h;
-  }
-
-  function prettifyHTML(html) {
-    let pretty = html.replace(/>\s*</g, '>\n<').replace(/>\s*([^<\s])/g, '>\n$1').replace(/([^>])\s*</g, '$1\n<');
-    let depth = 0;
-    const voidTags = /^(area|base|br|col|embed|hr|img|input|link|meta|param|source|track|wbr)$/i;
-    return pretty.split('\n').map(line => {
-      const t = line.trim();
-      if (!t) return '';
-      const isClose = /^<\//.test(t);
-      const isSelf = /\/>$/.test(t) || voidTags.test((t.match(/^<(\w+)/) || [])[1] || '');
-      if (isClose) depth = Math.max(0, depth - 1);
-      const out = '  '.repeat(depth) + t;
-      if (!isClose && !isSelf && /^<\w/.test(t)) depth++;
-      return out;
-    }).filter(Boolean).join('\n');
-  }
-
-  function prettifyCSS(css) {
-    return css
-      .replace(/\s*\{\s*/g, ' {\n  ').replace(/;\s*/g, ';\n  ')
-      .replace(/\s*\}\s*/g, '\n}\n').replace(/\n {2}(\s*\n)/g, '\n$1').trim();
-  }
-
-  function formatCodeWithLineNumbers(code, type = 'html') {
-    const pretty = type === 'css' ? prettifyCSS(code) : prettifyHTML(code);
-    const highlighted = (type === 'css' ? highlightCSS : highlightHTML)(pretty);
-    return highlighted.split('\n').filter(l => l.trim()).map(l => `<span class="code-line">${l}</span>`).join('');
-  }
-
-  function extractCSS(html) {
-    const m = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
-    return m ? m[1].trim() : '';
-  }
-
-  /* ============================================================
-     NEW PAGE PANEL
-     Replaces the old inline name-form with a rich setup panel:
-     page name, type, style, color, design inheritance, and notes.
-     On create: generates the new page using the AI pipeline.
-  ============================================================ */
-  const NewPagePanel = (() => {
-    // Default sections for each page type — ensures spec extractor always gets sections
-    const SECTIONS_BY_TYPE = {
-      'Landing': ['hero', 'features', 'testimonials', 'call to action'],
-      'About': ['hero', 'our story', 'team', 'values'],
-      'Contact': ['hero', 'contact form', 'location info', 'FAQ'],
-      'Portfolio': ['hero', 'projects grid', 'skills', 'contact'],
-      'Blog': ['hero', 'featured post', 'articles list', 'sidebar'],
-      'Services': ['hero', 'services list', 'process', 'pricing', 'contact'],
-      'Pricing': ['hero', 'pricing tiers', 'feature comparison', 'FAQ'],
-      'Gallery': ['hero', 'image grid', 'categories filter', 'contact'],
-    };
-
-    const PAGE_TYPES = ['Landing', 'About', 'Contact', 'Portfolio', 'Blog', 'Services', 'Pricing', 'Gallery', 'Custom'];
-    const STYLES = ['Modern', 'Minimal', 'Bold', 'Playful', 'Professional', 'Dark', 'Futuristic'];
-    const COLORS = [
-      { label: 'Blue', hex: '#5b9ee8' },
-      { label: 'Violet', hex: '#8b5cf6' },
-      { label: 'Cyan', hex: '#06b6d4' },
-      { label: 'Emerald', hex: '#10b981' },
-      { label: 'Orange', hex: '#f97316' },
-      { label: 'Rose', hex: '#f43f5e' },
-      { label: 'Amber', hex: '#f59e0b' },
-      { label: 'Dark', hex: '#1a1a2e' },
-      { label: 'White', hex: '#f8fafc' },
-    ];
-
-    const panel = document.getElementById('newPagePanel');
-    const closeBtn = document.getElementById('newPageClose');
-    const nameInput = document.getElementById('nppName');
-    const typeChips = document.getElementById('nppTypeChips');
-    const styleChips = document.getElementById('nppStyleChips');
-    const colorSwatches = document.getElementById('nppColors');
-    const inheritList = document.getElementById('nppInheritList');
-    const inheritSection = document.getElementById('nppInheritSection');
-    const notesInput = document.getElementById('nppNotes');
-    const createBtn = document.getElementById('nppCreateBtn');
-
-    let selectedType = 'Landing';
-    let customTypeValue = '';           // filled when selectedType === 'Custom'
-    let selectedStyles = ['Modern'];
-    let selectedColor = COLORS[0];
-    let inheritedColorHex = null;        // non-null when "inherit color from page" is active
-    let selectedInherit = null;         // null = none, or page id for design inherit
-
-    // ── Extract primary color from page HTML ──────────────────
-    function _extractColorFromCode(code) {
-      if (!code) return null;
-      // 1. CSS custom property named --accent, --primary, --brand, --color-primary
-      const varMatch = code.match(/--(?:accent|primary|brand|color-primary|theme)\s*:\s*(#[0-9a-fA-F]{3,8})/i);
-      if (varMatch) return varMatch[1];
-      // 2. First mid-range hex color (not near black/white/grey)
-      const hexes = [...code.matchAll(/#([0-9a-fA-F]{6})\b/g)].map(m => '#' + m[1]);
-      for (const h of hexes) {
-        const r = parseInt(h.slice(1, 3), 16), g = parseInt(h.slice(3, 5), 16), b = parseInt(h.slice(5, 7), 16);
-        const brightness = (r * 299 + g * 587 + b * 114) / 1000;
-        const saturation = Math.max(r, g, b) - Math.min(r, g, b);
-        if (brightness > 40 && brightness < 210 && saturation > 40) return h;
-      }
-      return null;
+  // ── Extract FULL design system from page HTML (all CSS color tokens) ──
+  function _extractDesignSystem(code) {
+    if (!code) return null;
+    const colors = {};
+    const varMatches = [...code.matchAll(/--([\w-]+)\s*:\s*(#[0-9a-fA-F]{3,8}|rgba?\([^)]+\)|hsla?\([^)]+\))/gi)];
+    for (const m of varMatches) {
+      const name = m[1].toLowerCase().trim();
+      colors[name] = m[2];
     }
+    const rootMatch = code.match(/:root\s*\{[^}]*\}/);
+    const importMatches = [...code.matchAll(/@import[^;]+;/g)].map(m => m[0]);
+    const fontFaceMatches = [...code.matchAll(/@font-face\s*\{[^}]*\}/g)].map(m => m[0]);
+    return { colors, rootBlock: rootMatch?.[0] || null, imports: importMatches, fontFaces: fontFaceMatches };
+  }
 
-    // ── Validation ────────────────────────────────────────────
-    function _validate() {
-      // Custom type must be filled in
-      if (selectedType === 'Custom' && !customTypeValue.trim()) return false;
-      return true;
-    }
+  // ── Validation ────────────────────────────────────────────
+  function _validate() {
+    // Custom type must be filled in
+    if (selectedType === 'Custom' && !customTypeValue.trim()) return false;
+    return true;
+  }
 
-    function _updateCreateBtn() {
-      const valid = _validate();
-      createBtn.disabled = !valid;
-      createBtn.style.opacity = valid ? '' : '0.45';
-      createBtn.style.cursor = valid ? '' : 'not-allowed';
-    }
+  function _updateCreateBtn() {
+    const valid = _validate();
+    createBtn.disabled = !valid;
+    createBtn.style.opacity = valid ? '' : '0.45';
+    createBtn.style.cursor = valid ? '' : 'not-allowed';
+  }
 
-    // ── Type chips (with Custom → inline input) ───────────────
-    function _buildTypeChips() {
-      typeChips.innerHTML = '';
-      PAGE_TYPES.forEach(item => {
-        const chip = document.createElement('button');
-        chip.className = 'npp-chip' + (selectedType === item ? ' selected' : '');
-        chip.textContent = item;
-        chip.addEventListener('click', (e) => {
-          e.stopPropagation();
-          selectedType = item;
-          typeChips.querySelectorAll('.npp-chip').forEach(c => {
-            c.classList.toggle('selected', c.textContent === item);
-          });
-          _toggleCustomInput();
-          _updateCreateBtn();
-        });
-        typeChips.appendChild(chip);
-      });
-
-      // Custom input field — hidden by default
-      const wrap = document.createElement('div');
-      wrap.id = 'nppCustomWrap';
-      wrap.style.cssText = 'display:none;width:100%;margin-top:6px;';
-      wrap.innerHTML = `<input id="nppCustomInput" class="npp-input" placeholder="e.g. FAQ, Team, Dashboard…" maxlength="60" spellcheck="false" style="font-size:12px;padding:6px 10px;">`;
-      typeChips.appendChild(wrap);
-
-      const customInput = wrap.querySelector('#nppCustomInput');
-      customInput.addEventListener('input', (e) => {
+  // ── Type chips (with Custom → inline input) ───────────────
+  function _buildTypeChips() {
+    typeChips.innerHTML = '';
+    PAGE_TYPES.forEach(item => {
+      const chip = document.createElement('button');
+      chip.className = 'npp-chip' + (selectedType === item ? ' selected' : '');
+      chip.textContent = item;
+      chip.addEventListener('click', (e) => {
         e.stopPropagation();
-        customTypeValue = customInput.value;
+        selectedType = item;
+        typeChips.querySelectorAll('.npp-chip').forEach(c => {
+          c.classList.toggle('selected', c.textContent === item);
+        });
+        _toggleCustomInput();
         _updateCreateBtn();
       });
-      customInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') { e.preventDefault(); _createPage(); }
-        if (e.key === 'Escape') { e.preventDefault(); close(); }
-        e.stopPropagation();
-      });
-      customInput.addEventListener('click', e => e.stopPropagation());
+      typeChips.appendChild(chip);
+    });
 
-      _toggleCustomInput();
-    }
+    // Custom input field — hidden by default
+    const wrap = document.createElement('div');
+    wrap.id = 'nppCustomWrap';
+    wrap.style.cssText = 'display:none;width:100%;margin-top:6px;';
+    wrap.innerHTML = `<input id="nppCustomInput" class="npp-input" placeholder="e.g. FAQ, Team, Dashboard…" maxlength="60" spellcheck="false" style="font-size:12px;padding:6px 10px;">`;
+    typeChips.appendChild(wrap);
 
-    function _toggleCustomInput() {
-      const wrap = document.getElementById('nppCustomWrap');
-      if (!wrap) return;
-      const show = selectedType === 'Custom';
-      wrap.style.display = show ? 'block' : 'none';
-      if (show) {
-        const inp = wrap.querySelector('#nppCustomInput');
-        inp.value = customTypeValue;
-        requestAnimationFrame(() => inp.focus());
-      }
-    }
-
-    // ── Style chips ───────────────────────────────────────────
-    function _buildStyleChips() {
-      styleChips.innerHTML = '';
-
-      // ensure default
-      if (!Array.isArray(selectedStyles) || selectedStyles.length === 0) {
-        selectedStyles = ['Modern'];
-      }
-
-      STYLES.forEach(item => {
-        const chip = document.createElement('button');
-        chip.className = 'npp-chip' + (selectedStyles.includes(item) ? ' selected' : '');
-        chip.textContent = item;
-
-        chip.addEventListener('click', (e) => {
-          e.stopPropagation();
-
-          // toggle
-          if (selectedStyles.includes(item)) {
-            selectedStyles = selectedStyles.filter(s => s !== item);
-          } else {
-            selectedStyles = [...selectedStyles, item];
-          }
-
-          // optional: never allow empty selection
-          if (selectedStyles.length === 0) selectedStyles = ['Modern'];
-
-          chip.classList.toggle('selected', selectedStyles.includes(item));
-        });
-
-        styleChips.appendChild(chip);
-      });
-    }
-
-    // ── Color swatches + inherit-from-page ────────────────────
-    function _buildColors() {
-      colorSwatches.innerHTML = '';
-
-      // Preset swatches
-      COLORS.forEach(c => {
-        const sw = document.createElement('button');
-        const isSelected = !inheritedColorHex && selectedColor === c;
-        sw.className = 'npp-color-swatch' + (isSelected ? ' selected' : '');
-        sw.style.background = c.hex;
-        sw.title = c.label;
-        sw.addEventListener('click', (e) => {
-          e.stopPropagation();
-          selectedColor = c;
-          inheritedColorHex = null;
-          // Clear inherit-from dropdown if open
-          const picker = document.getElementById('nppColorInheritPicker');
-          if (picker) picker.remove();
-          colorSwatches.querySelectorAll('.npp-color-swatch').forEach(s => {
-            s.classList.toggle('selected', s === sw);
-          });
-          // Deselect inherit button
-          const inheritBtn = document.getElementById('nppColorInheritBtn');
-          if (inheritBtn) inheritBtn.classList.remove('selected');
-        });
-        colorSwatches.appendChild(sw);
-      });
-
-      // Wire up the static Auto button (lives in HTML, outside the scroll)
-      const pagesWithCode = state.pages.filter(p => p.code);
-      const inheritBtn = document.getElementById('nppColorInheritBtn');
-      if (inheritBtn) {
-        // Sync selected state
-        inheritBtn.classList.toggle('selected', !!inheritedColorHex);
-        inheritBtn.style.boxShadow = inheritedColorHex
-          ? `inset 0 0 0 3px ${inheritedColorHex}`
-          : '';
-
-        // Re-attach click (clone to drop any previous listener)
-        const fresh = inheritBtn.cloneNode(true);
-        inheritBtn.replaceWith(fresh);
-
-        if (pagesWithCode.length > 0) {
-          fresh.style.display = '';
-          fresh.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const existing = document.getElementById('nppColorInheritPicker');
-            if (existing) { existing.remove(); return; }
-            _showColorInheritPicker(fresh, pagesWithCode);
-          });
-        } else {
-          // No pages to inherit from — hide the button
-          fresh.style.display = 'none';
-        }
-      }
-    }
-
-    function _showColorInheritPicker(anchor, pages) {
-      // Remove any existing picker
-      const old = document.getElementById('nppColorInheritPicker');
-      if (old) old.remove();
-
-      const picker = document.createElement('div');
-      picker.id = 'nppColorInheritPicker';
-      picker.className = 'npp-color-inherit-picker';
-      picker.innerHTML = `<div class="ncip-label">Copy color from</div>`;
-
-      pages.forEach(page => {
-        const extracted = _extractColorFromCode(page.code);
-        const row = document.createElement('button');
-        row.className = 'ncip-row';
-        row.innerHTML = `
-          <span class="ncip-dot" style="background:${extracted || '#555'}"></span>
-          <span class="ncip-name" title="${page.name}">${page.name}</span>
-          ${extracted
-            ? `<span class="ncip-hex">${extracted}</span>`
-            : `<span class="ncip-hex" style="opacity:.45">no color found</span>`}`;
-        row.addEventListener('click', (e) => {
-          e.stopPropagation();
-          if (extracted) {
-            inheritedColorHex = extracted;
-            // Show the extracted color as a selected swatch
-            colorSwatches.querySelectorAll('.npp-color-swatch').forEach(s => s.classList.remove('selected'));
-            const inheritBtn = document.getElementById('nppColorInheritBtn');
-            if (inheritBtn) {
-              inheritBtn.classList.add('selected');
-              inheritBtn.style.boxShadow = `inset 0 0 0 3px ${extracted}`;
-            }
-          }
-          picker.remove();
-        });
-        picker.appendChild(row);
-      });
-
-      // Position popover above the Auto button
-      document.body.appendChild(picker);
-      const rect = anchor.getBoundingClientRect();
-      const pw = picker.offsetWidth;
-      // Align right edge of popover with right edge of button; pop above
-      let left = rect.right - pw;
-      let top = rect.top - picker.offsetHeight - 8;
-      // Clamp to viewport
-      if (left < 8) left = 8;
-      if (top < 8) top = rect.bottom + 8; // flip below if no room above
-      picker.style.left = left + 'px';
-      picker.style.top = top + 'px';
-
-      // Close on outside click
-      const onOutside = (e) => {
-        if (!picker.contains(e.target) && e.target !== anchor) {
-          picker.remove();
-          document.removeEventListener('click', onOutside, true);
-        }
-      };
-      setTimeout(() => document.addEventListener('click', onOutside, true), 0);
-    }
-
-    // ── Design inherit list ───────────────────────────────────
-    function _buildInherit() {
-      const pagesWithCode = state.pages.filter(p => p.code);
-      if (pagesWithCode.length === 0) { inheritSection.style.display = 'none'; return; }
-      inheritSection.style.display = '';
-      inheritList.innerHTML = '';
-
-      const noneItem = document.createElement('div');
-      noneItem.className = 'npp-inherit-none' + (selectedInherit === null ? ' selected' : '');
-      noneItem.innerHTML = `<svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M1 1l8 8M9 1l-8 8"/></svg><span>None — fresh design</span>`;
-      noneItem.addEventListener('click', (e) => {
-        e.stopPropagation();
-        selectedInherit = null;
-        inheritList.querySelectorAll('.npp-inherit-item, .npp-inherit-none').forEach(i => i.classList.remove('selected'));
-        noneItem.classList.add('selected');
-      });
-      inheritList.appendChild(noneItem);
-
-      state.pages.forEach(page => {
-        const item = document.createElement('div');
-        item.className = 'npp-inherit-item' + (selectedInherit === page.id ? ' selected' : '');
-        item.innerHTML = `<span class="npp-page-dot"></span><span class="npp-page-label" title="${page.name}">${page.name}</span>${page.code ? '' : '<span style="font-size:10px;color:var(--text-3);margin-left:auto;flex-shrink:0">empty</span>'}`;
-        item.addEventListener('click', (e) => {
-          e.stopPropagation();
-          selectedInherit = page.id;
-          inheritList.querySelectorAll('.npp-inherit-item, .npp-inherit-none').forEach(i => i.classList.remove('selected'));
-          item.classList.add('selected');
-        });
-        inheritList.appendChild(item);
-      });
-    }
-
-    // ── Open / close ──────────────────────────────────────────
-    function open() {
-      nameInput.value = "";
-      selectedType = 'Landing';
-      customTypeValue = '';
-      selectedStyles = ['Modern'];
-      selectedColor = COLORS[0];
-      inheritedColorHex = null;
-      selectedInherit = null;
-      notesInput.value = '';
-
-      _buildTypeChips();
-      _buildStyleChips();
-      _buildColors();
-      _buildInherit();
+    const customInput = wrap.querySelector('#nppCustomInput');
+    customInput.addEventListener('input', (e) => {
+      e.stopPropagation();
+      customTypeValue = customInput.value;
       _updateCreateBtn();
-
-      const rect = el.pageSelector.getBoundingClientRect();
-      panel.style.top = (rect.bottom + 8) + 'px';
-      panel.style.left = rect.left + 'px';
-
-      panel.classList.add('visible');
-      requestAnimationFrame(() => {
-        const pr = panel.getBoundingClientRect();
-        if (pr.right > window.innerWidth - 8) panel.style.left = (window.innerWidth - pr.width - 12) + 'px';
-        if (pr.bottom > window.innerHeight - 8) panel.style.top = (rect.top - pr.height - 8) + 'px';
-      });
-
-      el.pageDropdown.classList.remove('visible');
-      el.pageSelector.classList.remove('open');
-      nameInput.focus();
-      nameInput.select();
-    }
-
-    function close() {
-      // Remove any floating pickers
-      const picker = document.getElementById('nppColorInheritPicker');
-      if (picker) picker.remove();
-      panel.classList.remove('visible');
-    }
-
-    // ── Build prompt ──────────────────────────────────────────
-    function _buildPrompt() {
-      const rawName = nameInput.value.trim() || `page-${state.pages.length + 1}`;
-      const notes = notesInput.value.trim();
-      const typeStr = selectedType === 'Custom' ? customTypeValue.trim() : selectedType;
-
-      // Sections — always explicit so spec extractor never fails
-      const defaultSections = SECTIONS_BY_TYPE[selectedType] || ['hero', 'main content', 'call to action', 'footer'];
-      const sectionsStr = defaultSections.join(', ');
-
-      // Color — inherited or chosen
-      const colorHex = inheritedColorHex || selectedColor.hex;
-      const colorLabel = inheritedColorHex
-        ? `inherited (${inheritedColorHex})`
-        : `${selectedColor.label} (${selectedColor.hex})`;
-
-      let prompt = `Create a complete ${typeStr.toLowerCase()} page`;
-      if (rawName && !rawName.match(/^page-\d+$/)) {
-        prompt += ` called "${rawName}"`;
-      }
-      prompt += `. Include these sections: ${sectionsStr}.`;
-      const styleStr = (selectedStyles && selectedStyles.length)
-        ? selectedStyles.join(', ')
-        : 'Modern';
-      prompt += ` Style: ${styleStr}.`;
-      prompt += ` Primary color: ${colorLabel}.`;
-
-      if (selectedInherit) {
-        const inheritPage = state.pages.find(p => p.id === selectedInherit);
-        if (inheritPage) {
-          prompt += ` Match the overall design language, typography, and visual style of the existing "${inheritPage.name}" page — keep consistency across the project.`;
-        }
-      }
-
-      if (notes) prompt += ` Additional requirements: ${notes}`;
-
-      return { prompt, name: rawName };
-    }
-
-    // ── Create ────────────────────────────────────────────────
-    async function _createPage() {
-      if (!_validate()) {
-        // Shake the create button as feedback
-        createBtn.classList.add('npp-shake');
-        setTimeout(() => createBtn.classList.remove('npp-shake'), 500);
-        // Focus the custom input if that's the issue
-        if (selectedType === 'Custom') {
-          document.getElementById('nppCustomInput')?.focus();
-        }
-        return;
-      }
-      if (Queue.busy) {
-        addMessage('ai', '⚠️ Please wait for the current operation to finish.');
-        return;
-      }
-
-      const { prompt, name } = _buildPrompt();
-      let pageName = name;
-      // Strip any .html the user may have typed — names are stored without extension
-      pageName = pageName.replace(/\.html$/i, '').replace(/\.+$/, '').trim() || 'page';
-
-      // Fix 4: create the page entry and use the dedicated single-page generator
-      // so existing pages are never overwritten.
-      const newPage = {
-        id: `page_${Date.now()}`,
-        name: pageName,
-        code: '',
-        timestamp: Date.now(),
-        history: [],
-        historyIndex: -1,
-      };
-      state.pages.push(newPage);
-
-      close();
-      switchPage(newPage.id);
-      await delay(100);
-      addMessage('user', prompt);
-      await _generateAndPopulatePage(newPage, prompt);
-    }
-
-    // ── Events ────────────────────────────────────────────────
-    closeBtn.addEventListener('click', (e) => { e.stopPropagation(); close(); });
-    createBtn.addEventListener('click', (e) => { e.stopPropagation(); _createPage(); });
-
-    nameInput.addEventListener('keydown', (e) => {
+    });
+    customInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') { e.preventDefault(); _createPage(); }
       if (e.key === 'Escape') { e.preventDefault(); close(); }
       e.stopPropagation();
     });
-    nameInput.addEventListener('click', e => e.stopPropagation());
+    customInput.addEventListener('click', e => e.stopPropagation());
 
-    notesInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') { e.preventDefault(); close(); }
+    _toggleCustomInput();
+  }
+
+  function _toggleCustomInput() {
+    const wrap = document.getElementById('nppCustomWrap');
+    if (!wrap) return;
+    const show = selectedType === 'Custom';
+    wrap.style.display = show ? 'block' : 'none';
+    if (show) {
+      const inp = wrap.querySelector('#nppCustomInput');
+      inp.value = customTypeValue;
+      requestAnimationFrame(() => inp.focus());
+    }
+  }
+
+  // ── Style chips ───────────────────────────────────────────
+  function _buildStyleChips() {
+    styleChips.innerHTML = '';
+
+    // ensure default
+    if (!Array.isArray(selectedStyles) || selectedStyles.length === 0) {
+      selectedStyles = ['Modern'];
+    }
+
+    STYLES.forEach(item => {
+      const chip = document.createElement('button');
+      chip.className = 'npp-chip' + (selectedStyles.includes(item) ? ' selected' : '');
+      chip.textContent = item;
+
+      chip.addEventListener('click', (e) => {
+        e.stopPropagation();
+
+        // toggle
+        if (selectedStyles.includes(item)) {
+          selectedStyles = selectedStyles.filter(s => s !== item);
+        } else {
+          selectedStyles = [...selectedStyles, item];
+        }
+
+        // optional: never allow empty selection
+        if (selectedStyles.length === 0) selectedStyles = ['Modern'];
+
+        chip.classList.toggle('selected', selectedStyles.includes(item));
+      });
+
+      styleChips.appendChild(chip);
+    });
+  }
+
+  // ── Color swatches + inherit-from-page ────────────────────
+  function _buildColors() {
+    colorSwatches.innerHTML = '';
+
+    // Preset swatches
+    COLORS.forEach(c => {
+      const sw = document.createElement('button');
+      const isSelected = !inheritedColorHex && selectedColor === c;
+      sw.className = 'npp-color-swatch' + (isSelected ? ' selected' : '');
+      sw.style.background = c.hex;
+      sw.title = c.label;
+      sw.addEventListener('click', (e) => {
+        e.stopPropagation();
+        selectedColor = c;
+        inheritedColorHex = null;
+        // Clear inherit-from dropdown if open
+        const picker = document.getElementById('nppColorInheritPicker');
+        if (picker) picker.remove();
+        colorSwatches.querySelectorAll('.npp-color-swatch').forEach(s => {
+          s.classList.toggle('selected', s === sw);
+        });
+        // Deselect inherit button
+        const inheritBtn = document.getElementById('nppColorInheritBtn');
+        if (inheritBtn) inheritBtn.classList.remove('selected');
+      });
+      colorSwatches.appendChild(sw);
+    });
+
+    // Wire up the static Auto button (lives in HTML, outside the scroll)
+    const pagesWithCode = state.pages.filter(p => p.code);
+    const inheritBtn = document.getElementById('nppColorInheritBtn');
+    if (inheritBtn) {
+      // Sync selected state
+      inheritBtn.classList.toggle('selected', !!inheritedColorHex);
+      inheritBtn.style.boxShadow = inheritedColorHex
+        ? `inset 0 0 0 3px ${inheritedColorHex}`
+        : '';
+
+      // Re-attach click (clone to drop any previous listener)
+      const fresh = inheritBtn.cloneNode(true);
+      inheritBtn.replaceWith(fresh);
+
+      if (pagesWithCode.length > 0) {
+        fresh.style.display = '';
+        fresh.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const existing = document.getElementById('nppColorInheritPicker');
+          if (existing) { existing.remove(); return; }
+          _showColorInheritPicker(fresh, pagesWithCode);
+        });
+      } else {
+        // No pages to inherit from — hide the button
+        fresh.style.display = 'none';
+      }
+    }
+  }
+
+  function _showColorInheritPicker(anchor, pages) {
+    // Remove any existing picker
+    const old = document.getElementById('nppColorInheritPicker');
+    if (old) old.remove();
+
+    const picker = document.createElement('div');
+    picker.id = 'nppColorInheritPicker';
+    picker.className = 'npp-color-inherit-picker';
+    picker.innerHTML = `<div class="ncip-label">Copy color from</div>`;
+
+    pages.forEach(page => {
+      const extracted = _extractColorFromCode(page.code);
+      const row = document.createElement('button');
+      row.className = 'ncip-row';
+      row.innerHTML = `
+          <span class="ncip-dot" style="background:${extracted || '#555'}"></span>
+          <span class="ncip-name" title="${page.name}">${page.name}</span>
+          ${extracted
+          ? `<span class="ncip-hex">${extracted}</span>`
+          : `<span class="ncip-hex" style="opacity:.45">no color found</span>`}`;
+      row.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (extracted) {
+          inheritedColorHex = extracted;
+          // Show the extracted color as a selected swatch
+          colorSwatches.querySelectorAll('.npp-color-swatch').forEach(s => s.classList.remove('selected'));
+          const inheritBtn = document.getElementById('nppColorInheritBtn');
+          if (inheritBtn) {
+            inheritBtn.classList.add('selected');
+            inheritBtn.style.boxShadow = `inset 0 0 0 3px ${extracted}`;
+          }
+        }
+        picker.remove();
+      });
+      picker.appendChild(row);
+    });
+
+    // Position popover above the Auto button
+    document.body.appendChild(picker);
+    const rect = anchor.getBoundingClientRect();
+    const pw = picker.offsetWidth;
+    // Align right edge of popover with right edge of button; pop above
+    let left = rect.right - pw;
+    let top = rect.top - picker.offsetHeight - 8;
+    // Clamp to viewport
+    if (left < 8) left = 8;
+    if (top < 8) top = rect.bottom + 8; // flip below if no room above
+    picker.style.left = left + 'px';
+    picker.style.top = top + 'px';
+
+    // Close on outside click
+    const onOutside = (e) => {
+      if (!picker.contains(e.target) && e.target !== anchor) {
+        picker.remove();
+        document.removeEventListener('click', onOutside, true);
+      }
+    };
+    setTimeout(() => document.addEventListener('click', onOutside, true), 0);
+  }
+
+  // ── Design inherit list ───────────────────────────────────
+  function _buildInherit() {
+    const pagesWithCode = state.pages.filter(p => p.code);
+    if (pagesWithCode.length === 0) { inheritSection.style.display = 'none'; return; }
+    inheritSection.style.display = '';
+    inheritList.innerHTML = '';
+
+    const noneItem = document.createElement('div');
+    noneItem.className = 'npp-inherit-none' + (selectedInherit === null ? ' selected' : '');
+    noneItem.innerHTML = `<svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M1 1l8 8M9 1l-8 8"/></svg><span>None — fresh design</span>`;
+    noneItem.addEventListener('click', (e) => {
       e.stopPropagation();
+      selectedInherit = null;
+      inheritList.querySelectorAll('.npp-inherit-item, .npp-inherit-none').forEach(i => i.classList.remove('selected'));
+      noneItem.classList.add('selected');
     });
-    notesInput.addEventListener('click', e => e.stopPropagation());
+    inheritList.appendChild(noneItem);
 
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && panel.classList.contains('visible')) close();
+    state.pages.forEach(page => {
+      const item = document.createElement('div');
+      item.className = 'npp-inherit-item' + (selectedInherit === page.id ? ' selected' : '');
+      item.innerHTML = `<span class="npp-page-dot"></span><span class="npp-page-label" title="${page.name}">${page.name}</span>${page.code ? '' : '<span style="font-size:10px;color:var(--text-3);margin-left:auto;flex-shrink:0">empty</span>'}`;
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        selectedInherit = page.id;
+        inheritList.querySelectorAll('.npp-inherit-item, .npp-inherit-none').forEach(i => i.classList.remove('selected'));
+        item.classList.add('selected');
+      });
+      inheritList.appendChild(item);
+    });
+  }
+
+  // ── Open / close ──────────────────────────────────────────
+  function open() {
+    nameInput.value = "";
+    selectedType = 'Landing';
+    customTypeValue = '';
+    selectedStyles = ['Modern'];
+    selectedColor = COLORS[0];
+    inheritedColorHex = null;
+    selectedInherit = null;
+    notesInput.value = '';
+
+    _buildTypeChips();
+    _buildStyleChips();
+    _buildColors();
+    _buildInherit();
+    _updateCreateBtn();
+
+    const rect = el.pageSelector.getBoundingClientRect();
+    panel.style.top = (rect.bottom + 8) + 'px';
+    panel.style.left = rect.left + 'px';
+
+    panel.classList.add('visible');
+    requestAnimationFrame(() => {
+      const pr = panel.getBoundingClientRect();
+      if (pr.right > window.innerWidth - 8) panel.style.left = (window.innerWidth - pr.width - 12) + 'px';
+      if (pr.bottom > window.innerHeight - 8) panel.style.top = (rect.top - pr.height - 8) + 'px';
     });
 
-    document.addEventListener('click', (e) => {
-      if (!panel.classList.contains('visible')) return;
-      const path = e.composedPath ? e.composedPath() : [];
-      if (!path.includes(panel) && !path.includes(el.addPageBtn)) close();
-    });
+    el.pageDropdown.classList.remove('visible');
+    el.pageSelector.classList.remove('open');
+    nameInput.focus();
+    nameInput.select();
+  }
 
-    return { open, close };
-  })();
+  function close() {
+    // Remove any floating pickers
+    const picker = document.getElementById('nppColorInheritPicker');
+    if (picker) picker.remove();
+    panel.classList.remove('visible');
+  }
 
-  /* ============================================================
-     DELETE CONFIRM MODAL
-     Shows a proper yes/no modal before deleting a page.
-  ============================================================ */
-  const DeleteConfirmModal = (() => {
-    const overlay = document.getElementById('deleteConfirmOverlay');
-    const pageNameEl = document.getElementById('dcmPageName');
-    const cancelBtn = document.getElementById('dcmCancel');
-    const confirmBtn = document.getElementById('dcmConfirm');
+  // ── Build prompt ──────────────────────────────────────────
+  function _buildPrompt() {
+    const rawName = nameInput.value.trim() || `page-${state.pages.length + 1}`;
+    const notes = notesInput.value.trim();
+    const typeStr = selectedType === 'Custom' ? customTypeValue.trim() : selectedType;
 
-    let _pendingPageId = null;
+    // Sections — always explicit so spec extractor never fails
+    const defaultSections = SECTIONS_BY_TYPE[selectedType] || ['hero', 'main content', 'call to action', 'footer'];
+    const sectionsStr = defaultSections.join(', ');
 
-    function show(pageId, pageName) {
-      _pendingPageId = pageId;
-      pageNameEl.textContent = pageName;
-      overlay.classList.add('visible');
+    // Color — inherited or chosen
+    const colorHex = inheritedColorHex || selectedColor.hex;
+    const colorLabel = inheritedColorHex
+      ? `inherited (${inheritedColorHex})`
+      : `${selectedColor.label} (${selectedColor.hex})`;
+
+    let prompt = `Create a complete ${typeStr.toLowerCase()} page`;
+    if (rawName && !rawName.match(/^page-\d+$/)) {
+      prompt += ` called "${rawName}"`;
     }
-
-    function hide() {
-      overlay.classList.remove('visible');
-      _pendingPageId = null;
-    }
-
-    cancelBtn.addEventListener('click', hide);
-
-    confirmBtn.addEventListener('click', () => {
-      if (_pendingPageId) {
-        deletePage(_pendingPageId);
+    prompt += `. Include these sections: ${sectionsStr}.`;
+    const styleStr = (selectedStyles && selectedStyles.length)
+      ? selectedStyles.join(', ')
+      : 'Modern';
+    prompt += ` Style: ${styleStr}.`;
+    // If inheriting from an existing page, extract the full design token set
+    const inheritPage = selectedInherit ? state.pages.find(p => p.id === selectedInherit) : null;
+    if (inheritPage && inheritPage.code) {
+      const ds = _extractDesignSystem(inheritPage.code);
+      if (ds && Object.keys(ds.colors).length > 0) {
+        const tokenList = Object.entries(ds.colors).map(([k, v]) => `--${k}: ${v}`).join('; ');
+        prompt += ` Design tokens from "${inheritPage.name}": ${tokenList}.`;
+      } else {
+        prompt += ` Primary color: ${colorLabel}.`;
       }
-      hide();
-    });
-
-    overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) hide();
-    });
-
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && overlay.classList.contains('visible')) hide();
-    });
-
-    return { show, hide };
-  })();
-
-  /* ============================================================
-     IFRAME PAGE NAVIGATION LISTENER
-     When user clicks a link like "about.html" inside the preview,
-     the guard script posts a message. We intercept it to switch pages.
-  ============================================================ */
-  window.addEventListener('message', (e) => {
-    if (e.data && e.data.type === 'nebulux_page_nav' && e.data.slug) {
-      const slug = e.data.slug.toLowerCase();
-      const target = state.pages.find(p => p.name.toLowerCase() === slug);
-      if (target && target.id !== state.currentPageId) {
-        switchPage(target.id);
-        log('iframe_page_nav', { slug });
+      prompt += ` Match the overall design language, typography, and visual style of the existing "${inheritPage.name}" page — keep consistency across the project.`;
+      if (ds && ds.rootBlock) {
+        prompt += `\nUse this EXACT :root block:\n\`\`\`css\n${ds.rootBlock}\n\`\`\``;
       }
+    } else {
+      prompt += ` Primary color: ${colorLabel}.`;
     }
+
+    if (notes) prompt += ` Additional requirements: ${notes}`;
+
+    return { prompt, name: rawName };
+  }
+
+  // ── Create ────────────────────────────────────────────────
+  async function _createPage() {
+    if (!_validate()) {
+      // Shake the create button as feedback
+      createBtn.classList.add('npp-shake');
+      setTimeout(() => createBtn.classList.remove('npp-shake'), 500);
+      // Focus the custom input if that's the issue
+      if (selectedType === 'Custom') {
+        document.getElementById('nppCustomInput')?.focus();
+      }
+      return;
+    }
+    if (Queue.busy) {
+      addMessage('ai', '⚠️ Please wait for the current operation to finish.');
+      return;
+    }
+
+    const { prompt, name } = _buildPrompt();
+    let pageName = name;
+    // Strip any .html the user may have typed — names are stored without extension
+    pageName = pageName.replace(/\.html$/i, '').replace(/\.+$/, '').trim() || 'page';
+
+    // Fix 4: create the page entry and use the dedicated single-page generator
+    // so existing pages are never overwritten.
+    const newPage = {
+      id: `page_${Date.now()}`,
+      name: pageName,
+      code: '',
+      timestamp: Date.now(),
+      history: [],
+      historyIndex: -1,
+    };
+    state.pages.push(newPage);
+
+    close();
+    switchPage(newPage.id);
+    await delay(100);
+    addMessage('user', prompt);
+    await _generateAndPopulatePage(newPage, prompt);
+  }
+
+  // ── Events ────────────────────────────────────────────────
+  closeBtn.addEventListener('click', (e) => { e.stopPropagation(); close(); });
+  createBtn.addEventListener('click', (e) => { e.stopPropagation(); _createPage(); });
+
+  nameInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); _createPage(); }
+    if (e.key === 'Escape') { e.preventDefault(); close(); }
+    e.stopPropagation();
+  });
+  nameInput.addEventListener('click', e => e.stopPropagation());
+
+  notesInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); close(); }
+    e.stopPropagation();
+  });
+  notesInput.addEventListener('click', e => e.stopPropagation());
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && panel.classList.contains('visible')) close();
   });
 
-  /* ============================================================
-     INIT
-     Order:
-       1. _resolveProjectId() — already done at top of IIFE
-       2. Chat.restoreFromStorage() {
-  console.log('Restoring chat from', chatStorageKey());
-  // ... existing logic
-  console.log('Restored', chatMessages.length, 'messages');
+  document.addEventListener('click', (e) => {
+    if (!panel.classList.contains('visible')) return;
+    const path = e.composedPath ? e.composedPath() : [];
+    if (!path.includes(panel) && !path.includes(el.addPageBtn)) close();
+  });
+
+  return { open, close };
+})();
+
+/* ============================================================
+   DELETE CONFIRM MODAL
+   Shows a proper yes/no modal before deleting a page.
+============================================================ */
+const DeleteConfirmModal = (() => {
+  const overlay = document.getElementById('deleteConfirmOverlay');
+  const pageNameEl = document.getElementById('dcmPageName');
+  const cancelBtn = document.getElementById('dcmCancel');
+  const confirmBtn = document.getElementById('dcmConfirm');
+
+  let _pendingPageId = null;
+
+  function show(pageId, pageName) {
+    _pendingPageId = pageId;
+    pageNameEl.textContent = pageName;
+    overlay.classList.add('visible');
+  }
+
+  function hide() {
+    overlay.classList.remove('visible');
+    _pendingPageId = null;
+  }
+
+  cancelBtn.addEventListener('click', hide);
+
+  confirmBtn.addEventListener('click', () => {
+    if (_pendingPageId) {
+      deletePage(_pendingPageId);
+    }
+    hide();
+  });
+
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) hide();
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && overlay.classList.contains('visible')) hide();
+  });
+
+  return { show, hide };
+})();
+
+/* ============================================================
+   IFRAME PAGE NAVIGATION LISTENER
+   When user clicks a link like "about.html" inside the preview,
+   the guard script posts a message. We intercept it to switch pages.
+============================================================ */
+window.addEventListener('message', (e) => {
+  if (e.data && e.data.type === 'nebulux_page_nav' && e.data.slug) {
+    const slug = e.data.slug.toLowerCase();
+    const target = state.pages.find(p => p.name.toLowerCase() === slug);
+    if (target && target.id !== state.currentPageId) {
+      switchPage(target.id);
+      log('iframe_page_nav', { slug });
+    }
+  }
+});
+
+/* ============================================================
+   INIT
+   Order:
+     1. _resolveProjectId() — already done at top of IIFE
+     2. Chat.restoreFromStorage() {
+console.log('Restoring chat from', chatStorageKey());
+// ... existing logic
+console.log('Restored', chatMessages.length, 'messages');
 } — uses correct per-project key
-       3. Project.load() — loads state
-       4. Show UI or trigger generation
-  ============================================================ */
-  async function init() {
-    state.originalPrompt = getPrompt();
+     3. Project.load() — loads state
+     4. Show UI or trigger generation
+============================================================ */
+async function init() {
+    if (window.Auth && window.Auth.ready) {
+      await window.Auth.ready;
+    }
 
-    // Fetch live credit balance immediately
-    Credits.refresh();
+  state.originalPrompt = getPrompt();
 
-    // Load attached files from the index page (sessionStorage)
-    FileManager.loadFromStorage();
+  // Fetch live credit balance immediately
+  Credits.refresh();
 
-    // ── Is there already a project in the URL? ────────────────────────────
-    // If ?project= exists, this is a RETURN VISIT (refresh / back-nav / shared link).
-    // We NEVER re-generate in this case, even if load temporarily fails.
-    const _urlParams = new URLSearchParams(window.location.search);
-    const _hasProject = !!_urlParams.get('project');
-    const _hasPrompt = !!_urlParams.get('prompt');
+  // Load attached files from the index page (sessionStorage)
+  FileManager.loadFromStorage();
 
-    // Load project FIRST so state.projectId is set, then restore chat with correct key
-    const loaded = await Project.load();
-    Chat.restoreFromStorage();
+  // ── Is there already a project in the URL? ────────────────────────────
+  // If ?project= exists, this is a RETURN VISIT (refresh / back-nav / shared link).
+  // We NEVER re-generate in this case, even if load temporarily fails.
+  const _urlParams = new URLSearchParams(window.location.search);
+  const _hasProject = !!_urlParams.get('project');
+  const _hasPrompt = !!_urlParams.get('prompt');
 
-    if (loaded && state.currentCode) {
-      // ── Project loaded successfully — just display it ────────────────────
-      // Strip ?prompt= from the URL so a page refresh never re-triggers generation.
-      if (_hasPrompt) {
-        _urlParams.delete('prompt');
-        const _cleanUrl = window.location.pathname +
-          (_urlParams.toString() ? '?' + _urlParams.toString() : '');
-        window.history.replaceState({}, '', _cleanUrl);
-      }
-      // Wipe the localStorage prompt key so even a hard-typed URL can't re-generate
-      try { localStorage.removeItem('nebulux_prompt_' + _userNamespace()); } catch (_) { }
+  // Load project FIRST so state.projectId is set, then restore chat with correct key
+  const loaded = await Project.load();
+  Chat.restoreFromStorage();
 
-      updatePageUI();
-      updatePreview(state.currentCode);
-      updateHistoryUI();
-      applyDeviceMode(state.device);
-      $$('.device-btn').forEach(b => {
-        b.classList.toggle('active', b.dataset.device === state.device);
-      });
-      Chat.saveToStorage(true);
+  if (loaded && state.currentCode) {
+    // ── Project loaded successfully — just display it ────────────────────
+    // Strip ?prompt= from the URL so a page refresh never re-triggers generation.
+    if (_hasPrompt) {
+      _urlParams.delete('prompt');
+      const _cleanUrl = window.location.pathname +
+        (_urlParams.toString() ? '?' + _urlParams.toString() : '');
+      window.history.replaceState({}, '', _cleanUrl);
+    }
+    // Wipe the localStorage prompt key so even a hard-typed URL can't re-generate
+    try { localStorage.removeItem('nebulux_prompt_' + _userNamespace()); } catch (_) { }
 
-    } else if (_hasProject) {
-      // ── ?project= in URL but load failed / code missing ──────────────────
-      // localStorage was cleared or evicted. Try fetching from server first.
-      el.projectTitle.textContent = state.projectName || 'Project';
-      updatePageUI();
-      try { localStorage.removeItem('nebulux_prompt_' + _userNamespace()); } catch (_) { }
+    updatePageUI();
+    updatePreview(state.currentCode);
+    updateHistoryUI();
+    applyDeviceMode(state.device);
+    $$('.device-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.device === state.device);
+    });
+    Chat.saveToStorage(true);
 
-      const _projectApiId = /^\d+$/.test(String(state.projectId)) ? state.projectId : null;
-      console.log('[Nebulux] restore: projectId=', state.projectId, 'apiId=', _projectApiId);
-      if (_projectApiId) {
-        addMessage('ai', '⏳ Restoring your project from the server...');
-        (window.Auth && typeof Auth.authFetch === 'function'
-          ? Auth.authFetch('/api/websites/' + _projectApiId + '/')
-          : fetch('/api/websites/' + _projectApiId + '/'))
+  } else if (_hasProject) {
+    // ── ?project= in URL but load failed / code missing ──────────────────
+    // localStorage was cleared or evicted. Try fetching from server first.
+    el.projectTitle.textContent = state.projectName || 'Project';
+    updatePageUI();
+    try { localStorage.removeItem('nebulux_prompt_' + _userNamespace()); } catch (_) { }
+
+    const _projectApiId = /^\d+$/.test(String(state.projectId)) ? state.projectId : null;
+    console.log('[Nebulux] restore: projectId=', state.projectId, 'apiId=', _projectApiId);
+    if (_projectApiId) {
+      addMessage('ai', '⏳ Restoring your project from the server...');
+      (window.Auth && typeof window.Auth.authFetch === 'function'
+        ? window.Auth.authFetch('/api/websites/' + _projectApiId + '/')
+        : fetch('/api/websites/' + _projectApiId + '/'))
         .then(r => {
           console.log('[Nebulux] project fetch status:', r.status, 'id:', _projectApiId);
           return r.ok ? r.json() : Promise.reject('http_' + r.status);
@@ -5533,8 +5622,25 @@ finishCanvasGeneration(['index']);
           state.currentCode = code;
           if (data.pages_json) {
             try {
-              state.pages = typeof data.pages_json === 'string' ? JSON.parse(data.pages_json) : data.pages_json;
-            } catch(_) {}
+              const pagesJson = typeof data.pages_json === 'string' ? JSON.parse(data.pages_json) : data.pages_json;
+              const loadedPages = [];
+              Object.entries(pagesJson).forEach(([slug, val]) => {
+                if (slug === '_chat') return;
+                loadedPages.push({
+                  id: 'page_' + Math.random().toString(36).substr(2, 9),
+                  name: slug,
+                  code: typeof val === 'string' ? val : (val.code || ''),
+                  history: val.history || [],
+                  historyIndex: val.historyIndex !== undefined ? val.historyIndex : -1,
+                });
+              });
+              state.pages = loadedPages.length > 0 ? loadedPages : [{ id: 'page_' + Date.now(), name: 'index', code, history: [], historyIndex: -1 }];
+
+              if (pagesJson._chat && Array.isArray(pagesJson._chat)) {
+                localStorage.setItem('nebulux_chat_' + _userNamespace() + '_' + state.projectId, JSON.stringify(pagesJson._chat));
+                Chat.restoreFromStorage();
+              }
+            } catch (_) { }
           }
           if (data.title) {
             state.projectName = data.title;
@@ -5548,7 +5654,7 @@ finishCanvasGeneration(['index']);
               code, pages: state.pages, name: state.projectName,
               lastGenerationId: _projectApiId, ts: Date.now()
             }));
-          } catch(_) {}
+          } catch (_) { }
           updatePageUI();
           updatePreview(state.currentCode);
           // Remove the loading message and confirm
@@ -5559,60 +5665,60 @@ finishCanvasGeneration(['index']);
         .catch(() => {
           addMessage('ai', '⚠ Could not load this project — your browser storage may have been cleared. If you have an internet connection, try refreshing the page. If the problem persists, you can re-create it from your original prompt.');
         });
-      } else {
-        addMessage('ai', '⚠ Could not load this project — your browser storage may have been cleared. If you have an internet connection, try refreshing the page. If the problem persists, you can re-create it from your original prompt.');
-      }
-
     } else {
-      // ── No project yet — this is a genuine first-time generation ─────────
-      // Only reaches here when there is NO ?project= in the URL.
-      el.projectTitle.textContent = state.projectName;
-      updatePageUI();
+      addMessage('ai', '⚠ Could not load this project — your browser storage may have been cleared. If you have an internet connection, try refreshing the page. If the problem persists, you can re-create it from your original prompt.');
+    }
 
-      // Auth gate: must be signed in before generating
-      if (window.Auth && !window.Auth.isAuthenticated()) {
-        addMessage('ai', 'Sign in to start generating your website.');
-        window.Auth.open('Login');
+  } else {
+    // ── No project yet — this is a genuine first-time generation ─────────
+    // Only reaches here when there is NO ?project= in the URL.
+    el.projectTitle.textContent = state.projectName;
+    updatePageUI();
 
-        document.addEventListener('auth:login', function onReady() {
-          Credits.refresh();
-          generateWebsite(state.originalPrompt);
-        }, { once: true });
-      } else {
-        await generateWebsite(state.originalPrompt);
-      }
+    // Auth gate: must be signed in before generating
+    if (window.Auth && !window.Auth.isAuthenticated()) {
+      addMessage('ai', 'Sign in to start generating your website.');
+      window.Auth.open('Login');
+
+      document.addEventListener('auth:login', function onReady() {
+        Credits.refresh();
+        generateWebsite(state.originalPrompt);
+      }, { once: true });
+    } else {
+      await generateWebsite(state.originalPrompt);
     }
   }
+}
 
-  // Attach edit buttons to any messages already in DOM (restored from storage)
-  // and watch for future ones
-  new MutationObserver(mutations => {
-    mutations.forEach(m => m.addedNodes.forEach(node => {
-      
-    }));
-  }).observe(el.messages, { childList: true });
+// Attach edit buttons to any messages already in DOM (restored from storage)
+// and watch for future ones
+new MutationObserver(mutations => {
+  mutations.forEach(m => m.addedNodes.forEach(node => {
 
-  
+  }));
+}).observe(el.messages, { childList: true });
 
-  // Wait for auth.js to finish its async token refresh before running init().
-  // Without this, Auth.isAuthenticated() is always false on first load.
-  (function () {
-    let _initFired = false;
-    function _runInit() {
-      if (_initFired) return;
-      _initFired = true;
-      init();
-    }
-    document.addEventListener('auth:login', _runInit, { once: true });
-    document.addEventListener('auth:logout', _runInit, { once: true });
-    setTimeout(_runInit, 8000);
-  })();
 
-  // Expose state to publish panel (which lives outside this closure)
-  window._nebuluxGetGenId = function() { return state.lastGenerationId || null; };
-  window._nebuluxGetPages = function() { return state.pages || []; };
 
+// Wait for auth.js to finish its async token refresh before running init().
+// Without this, window.Auth.isAuthenticated() is always false on first load.
+(function () {
+  let _initFired = false;
+  function _runInit() {
+    if (_initFired) return;
+    _initFired = true;
+    init();
+  }
+  document.addEventListener('auth:login', _runInit, { once: true });
+  document.addEventListener('auth:logout', _runInit, { once: true });
+  setTimeout(_runInit, 8000);
 })();
+
+// Expose state to publish panel (which lives outside this closure)
+window._nebuluxGetGenId = function () { return state.lastGenerationId || null; };
+window._nebuluxGetPages = function () { return state.pages || []; };
+
+}) ();
 
 /* ── Sidebar pull-tab visibility ── */
 (function () {
@@ -5647,21 +5753,21 @@ finishCanvasGeneration(['index']);
    PUBLISH PANEL
 ============================================================ */
 
-(function() {
-  const publishBtn        = document.getElementById('publishBtn');
-  const publishPanel      = document.getElementById('publishPanel');
-  const publishOverlay    = document.getElementById('publishPanelOverlay');
+(function () {
+  const publishBtn = document.getElementById('publishBtn');
+  const publishPanel = document.getElementById('publishPanel');
+  const publishOverlay = document.getElementById('publishPanelOverlay');
   const publishPanelClose = document.getElementById('publishPanelClose');
-  const publishedState    = document.getElementById('publishedState');
-  const unpublishedState  = document.getElementById('unpublishedState');
-  const changesBanner     = document.getElementById('publishChangesBanner');
-  const republishBtn      = document.getElementById('republishBtn');
-  const publishLiveUrl    = document.getElementById('publishLiveUrl');
-  const publishCopyBtn    = document.getElementById('publishCopyBtn');
-  const unpublishBtn      = document.getElementById('unpublishBtn');
-  const subdomainInput    = document.getElementById('publishSubdomainInput');
-  const subdomainStatus   = document.getElementById('subdomainStatus');
-  const publishGoBtn      = document.getElementById('publishGoBtn');
+  const publishedState = document.getElementById('publishedState');
+  const unpublishedState = document.getElementById('unpublishedState');
+  const changesBanner = document.getElementById('publishChangesBanner');
+  const republishBtn = document.getElementById('republishBtn');
+  const publishLiveUrl = document.getElementById('publishLiveUrl');
+  const publishCopyBtn = document.getElementById('publishCopyBtn');
+  const unpublishBtn = document.getElementById('unpublishBtn');
+  const subdomainInput = document.getElementById('publishSubdomainInput');
+  const subdomainStatus = document.getElementById('subdomainStatus');
+  const publishGoBtn = document.getElementById('publishGoBtn');
 
   if (!publishBtn) return;
 
@@ -5683,9 +5789,9 @@ finishCanvasGeneration(['index']);
   publishPanelClose.addEventListener('click', closePanel);
   publishOverlay.addEventListener('click', closePanel);
 
-  async function _apiFetch(url, opts={}) {
-    if (window.Auth && typeof Auth.apiFetch === 'function') {
-      return Auth.apiFetch(url, { headers: { 'Content-Type': 'application/json' }, ...opts });
+  async function _apiFetch(url, opts = {}) {
+    if (window.Auth && typeof window.Auth.apiFetch === 'function') {
+      return window.Auth.apiFetch(url, { headers: { 'Content-Type': 'application/json' }, ...opts });
     }
     return fetch(url, { headers: { 'Content-Type': 'application/json' }, ...opts });
   }
@@ -5697,7 +5803,7 @@ finishCanvasGeneration(['index']);
     try {
       const pages = window._nebuluxGetPages?.() || [];
       return pages.some(p => p.timestamp && p.timestamp > pubTime);
-    } catch(e) { return false; }
+    } catch (e) { return false; }
   }
 
   async function _loadStatus() {
@@ -5719,7 +5825,7 @@ finishCanvasGeneration(['index']);
       } else {
         _showUnpublished();
       }
-    } catch(e) {
+    } catch (e) {
       _showUnpublished();
     }
   }
@@ -5763,7 +5869,7 @@ finishCanvasGeneration(['index']);
         subdomainStatus.className = 'publish-subdomain-status err';
         publishGoBtn.disabled = true;
       }
-    } catch(e) {
+    } catch (e) {
       subdomainStatus.textContent = 'Could not check';
       subdomainStatus.className = 'publish-subdomain-status err';
     }
@@ -5791,7 +5897,7 @@ finishCanvasGeneration(['index']);
         publishGoBtn.disabled = false;
         publishGoBtn.innerHTML = '<svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2l9 7-9 7-9-7 9-7z"/><path d="M3 17l9 5 9-5"/></svg> Publish site';
       }
-    } catch(e) {
+    } catch (e) {
       publishGoBtn.disabled = false;
       publishGoBtn.innerHTML = '<svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2l9 7-9 7-9-7 9-7z"/><path d="M3 17l9 5 9-5"/></svg> Publish site';
     }

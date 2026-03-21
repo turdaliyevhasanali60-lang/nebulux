@@ -25,6 +25,9 @@
     refreshing: null,
   };
 
+  let _authResolve;
+  const authReady = new Promise(r => { _authResolve = r; });
+
   /* ─── JWT helpers ────────────────────────────────── */
   function pay(t) {
     try {
@@ -838,6 +841,7 @@
     inject(); setupPwToggles(); wire();
     const googleHandled = await checkGoogleCallback();
     if (!googleHandled) await restore();
+    if (_authResolve) _authResolve(true);
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
@@ -1159,6 +1163,6 @@
   // ── Hook: check after login if user needs onboarding ──
   // (integrated directly into storeSession above)
 
-  window.Auth = { open: openModal, close: closeModal, panel: goPanel, isAuthenticated: () => !!S.access, getUser: () => S.user, authFetch, apiFetch: authFetch, logout };
+  window.Auth = { open: openModal, close: closeModal, panel: goPanel, isAuthenticated: () => !!S.access, getUser: () => S.user, authFetch, apiFetch: authFetch, logout, ready: authReady };
 
 })();

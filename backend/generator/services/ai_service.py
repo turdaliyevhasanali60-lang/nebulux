@@ -1336,6 +1336,7 @@ TECHNICAL RULES
 ════════════════════════════════════════════════════════════
 :root vars in every page. Container: max-width:1200px; margin:0 auto; padding:0 24px.
 Section padding: min 80px 0. No Bootstrap/Tailwind. No inline styles.
+NEVER use base64/data URIs for images (`src="data:image/..."`). Always use `/api/image/?q={keyword}&w={w}&h={h}` instead.
 Real copy — no lorem ipsum. Return ONLY <think>+page markers+raw HTML.
 {token_block}
 {scaffold_block}
@@ -1386,8 +1387,13 @@ EDITING RULES:
 - Preserve existing design tokens, spacing scale, typography, and animations.
 - Do not introduce inline style attributes.
 - Keep the result fully responsive.
+- NEVER use base64/data URIs for images (`src="data:image/..."`). Always use `/api/image/?q={keyword}&w={w}&h={h}` instead.
 
 RETURN ONLY the complete updated raw HTML — no markdown, no explanation.
+CRITICAL ANTI-LAZINESS RULE:
+You MUST return the ENTIRE, COMPLETE HTML document from <!DOCTYPE html> to </html>.
+DO NOT TRUNCATE the code. DO NOT omit unchanged sections. DO NOT use placeholders like "<!-- rest of code -->".
+If you do not output every single line of the original HTML, the website will break entirely.
 Start with <!DOCTYPE html> and end with </html>.
 {token_block}
 {scaffold_block}
@@ -1409,8 +1415,14 @@ ALLOWED:
   ✓ Update the content attribute of <meta> description/keywords tags.
   ✓ Update alt text on <img> tags.
   ✓ Change placeholder or value attributes on form inputs.
+  ✓ Update image src to /api/image/?q={keyword}&w={w}&h={h} to make them relevant.
+  ✗ NEVER use base64/data URIs for images (`src="data:image/..."`).
 
 RETURN ONLY the complete updated raw HTML — no markdown, no explanation.
+CRITICAL ANTI-LAZINESS RULE:
+You MUST return the ENTIRE, COMPLETE HTML document from <!DOCTYPE html> to </html>.
+DO NOT TRUNCATE the code. DO NOT omit unchanged sections. DO NOT use placeholders like "<!-- rest of code -->".
+If you do not output every single line of the original HTML, the website will break entirely.
 Start with <!DOCTYPE html> and end with </html>.
 {token_block}
 {scaffold_block}
@@ -1433,7 +1445,12 @@ ALLOWED:
   ✓ Add or remove inline style attributes ONLY if no <style> rule can reach the element.
 
 Keep the result fully responsive. Never break existing breakpoints.
+NEVER use base64/data URIs for images (`src="data:image/..."`).
 RETURN ONLY the complete updated raw HTML — no markdown, no explanation.
+CRITICAL ANTI-LAZINESS RULE:
+You MUST return the ENTIRE, COMPLETE HTML document from <!DOCTYPE html> to </html>.
+DO NOT TRUNCATE the code. DO NOT omit unchanged sections. DO NOT use placeholders like "<!-- rest of code -->".
+If you do not output every single line of the original HTML, the website will break entirely.
 Start with <!DOCTYPE html> and end with </html>.
 {token_block}
 {scaffold_block}
@@ -1449,8 +1466,13 @@ RULES:
 - Do not introduce inline style attributes.
 - Keep every @media breakpoint intact or improve it.
 - Keep the result fully responsive.
+- NEVER use base64/data URIs for images (`src="data:image/..."`).
 
 RETURN ONLY the complete updated raw HTML — no markdown, no explanation.
+CRITICAL ANTI-LAZINESS RULE:
+You MUST return the ENTIRE, COMPLETE HTML document from <!DOCTYPE html> to </html>.
+DO NOT TRUNCATE the code. DO NOT omit unchanged sections. DO NOT use placeholders like "<!-- rest of code -->".
+If you do not output every single line of the original HTML, the website will break entirely.
 Start with <!DOCTYPE html> and end with </html>.
 {token_block}
 {scaffold_block}
@@ -1517,12 +1539,15 @@ def _get_generate_system_prompt(user_prompt: str = "", spec: dict | None = None,
         import re as _re2
         single_block = (
             "════════════════════════════════════════════════════════════\n"
-            "SINGLE-PAGE MODE\n"
+            "SINGLE-PAGE MODE — HARD LOCK\n"
             "════════════════════════════════════════════════════════════\n"
             f"- Generate ONLY ONE page: ---PAGE:{single_page}---\n"
             f"- Output must start with ---PAGE:{single_page}--- on its own line.\n"
-            "- Do NOT generate index, about, contact or any other pages.\n"
-            "- The page must be a COMPLETE standalone HTML file.\n"
+            f"- You are creating a NEW page called \"{single_page}\". Do NOT modify, regenerate, or output any other page.\n"
+            "- Do NOT output ---PAGE:index---, ---PAGE:about---, ---PAGE:contact--- or ANY other page markers.\n"
+            f"- The output must contain EXACTLY ONE ---PAGE:{single_page}--- marker and nothing else.\n"
+            "- The page must be a COMPLETE standalone HTML file starting with <!DOCTYPE html>.\n"
+            "- Match the design system, typography, and color tokens of the existing site exactly.\n"
         )
         prompt = _re2.sub(
             r'════+\nMULTI-PAGE REQUIREMENT \(CRITICAL\)\n════+\n.*?(?=════|\Z)',
@@ -1534,7 +1559,7 @@ def _get_generate_system_prompt(user_prompt: str = "", spec: dict | None = None,
     return prompt
 
 
-def _get_edit_system_prompt(edit_mode: str | None = None, instruction: str = "", spec: dict | None = None) -> str:
+def _get_edit_system_prompt(edit_mode: str | None = None, instruction: str = "", spec: dict | None = None, is_node_edit: bool = False) -> str:
     """
     Return the appropriate edit system prompt based on the /command prefix.
     Injects live design tokens and integration scaffolds into whichever
@@ -1556,13 +1581,31 @@ def _get_edit_system_prompt(edit_mode: str | None = None, instruction: str = "",
 
     fmt = dict(token_block=token_section, scaffold_block=scaffold_section)
     mode = (edit_mode or "").strip().lower()
+    base = ""
     if mode == "content":
-        return _EDIT_SYSTEM_PROMPT_CONTENT.format(**fmt)
-    if mode == "style":
-        return _EDIT_SYSTEM_PROMPT_STYLE.format(**fmt)
-    if mode == "layout":
-        return _EDIT_SYSTEM_PROMPT_LAYOUT.format(**fmt)
-    return _EDIT_SYSTEM_PROMPT_BASE.format(**fmt)
+        base = _EDIT_SYSTEM_PROMPT_CONTENT.format(**fmt)
+    elif mode == "style":
+        base = _EDIT_SYSTEM_PROMPT_STYLE.format(**fmt)
+    elif mode == "layout":
+        base = _EDIT_SYSTEM_PROMPT_LAYOUT.format(**fmt)
+    else:
+        base = _EDIT_SYSTEM_PROMPT_BASE.format(**fmt)
+
+    if is_node_edit:
+        base += (
+            "\nSCOPE CONSTRAINT: You are editing a SPECIFIC SNIPPET, not the full document.\n"
+            "RETURN ONLY the updated raw HTML snippet for the element provided.\n"
+            "Do NOT include <!DOCTYPE>, <html>, <head>, or <body> tags.\n"
+            "Exactly provide the modified version of the snippet passed in EXISTING HTML TO EDIT.\n"
+        )
+    else:
+        # Task 2026: Enforce full document return for general edits to prevent "snippet-only" lazy mode.
+        base += (
+            "\nDOCUMENT CONSTRAINT: You are editing the ENTIRE website page.\n"
+            "You MUST return the complete, updated HTML document from <!DOCTYPE html> to </html>.\n"
+            "DO NOT return a snippet. DO NOT omit the <head> or <body> tags. Any partial response will fail."
+        )
+    return base
 
 
 
@@ -1912,18 +1955,27 @@ def _clean_html(code: str) -> str:
     text = (code or "").strip()
     # Strip <think>...</think> blocks — Kimi leaks thinking into delta.content
     text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL | re.IGNORECASE)
-    # Strip base64 data URIs — these are huge inline blobs that crash the preview
-    text = re.sub(r'src="data:[^"]{200,}"', 'src="/api/image/?q=abstract&w=800&h=600"', text)
-    text = re.sub(r"src='data:[^']{200,}'", "src='/api/image/?q=abstract&w=800&h=600'", text)
+    # Strip base64 data URIs — these are huge inline blobs that crash the preview.
+    # We only strip them if they are truly massive (> 500KB) to allow AI-generated images.
+    text = re.sub(r'src="data:[^"]{500000,}"', 'src="/api/image/?q=abstract&w=800&h=600"', text)
+    text = re.sub(r"src='data:[^']{500000,}'", "src='/api/image/?q=abstract&w=800&h=600'", text)
     # Strip broken JS regex literals that would cause SyntaxError in the iframe
     text = _sanitize_js_regexes(text)
     # Strip leading prose before a code fence
-    fence_match = re.search(r"```(?:html)?\n", text)
-    if fence_match:
+    # Be flexible with whitespace/newlines after the fence
+    fence_match = re.search(r"```(?:html)?[\s\n]*", text, flags=re.IGNORECASE)
+    if fence_match and fence_match.start() < 300: # Only if it's near the start
         text = text[fence_match.end():]
         end_fence = text.rfind("```")
         if end_fence != -1:
             text = text[:end_fence]
+    else:
+        # Fallback: if no fence found, find the first structural tag and strip leading prose.
+        # This prevents AI 'chattiness' (conversational leakage) from breaking the parser.
+        tag_match = re.search(r'(\s*<!DOCTYPE|\s*<html|\s*<head|\s*<body|\s*<div|\s*<section)', text, re.IGNORECASE)
+        if tag_match:
+            text = text[tag_match.start():].strip()
+
     return text.strip()
 
 
@@ -2579,6 +2631,201 @@ def edit_website(
     return last_html, last_tokens
 
 
+def edit_website_stream(
+    code: str,
+    instruction: str,
+    files: list | None = None,
+    nbx_id: str | None = None,
+    edit_mode: str | None = None,
+    scope: str | None = None,
+    chat_history: list | None = None,
+    model_override: str | None = None,
+) -> Generator[dict, None, None]:
+    """
+    Streaming version of edit_website.
+    Yields: {"thinking_start": True}, {"thinking_chunk": "..."}, {"thinking_end": True}, {"chunk": "..."}, {"done": True, ...}
+    """
+    _simple_modes = {"content", "style"}
+    _task = "fast_edit" if (edit_mode or "").lower() in _simple_modes else "edit"
+    try:
+        cfg = MODEL_REGISTRY[model_override] if model_override else get_model_config(_task)
+    except Exception:
+        cfg = MODEL_REGISTRY[model_override] if model_override else get_model_config("edit")
+
+    _target_node = None
+    _full_soup   = None
+    code_to_send = code
+    is_node_edit  = False
+
+    if nbx_id:
+        try:
+            from bs4 import BeautifulSoup
+            _full_soup = BeautifulSoup(code, "html.parser")
+            _target_node = _full_soup.find(attrs={"data-nbx-id": nbx_id})
+            if _target_node is not None:
+                is_node_edit = True
+                code_to_send = str(_target_node)
+        except Exception as exc:
+            logger.warning("edit_website_stream: AST scoping failed (%s)", exc)
+
+    if edit_mode:
+        _semantic_firewall_check(instruction, edit_mode)
+
+    try:
+        logger.info("[NBX-FORENSIC] edit_website_stream BEGIN. model=%s, is_node=%s, instr='%s'", model_override, is_node_edit, instruction)
+        system_prompt = _get_edit_system_prompt(edit_mode, instruction, is_node_edit=is_node_edit)
+        logger.info("[NBX-FORENSIC] system_prompt size: %d", len(system_prompt))
+    except Exception as exc:
+        logger.warning("edit_website_stream: _get_edit_system_prompt failed (%s)", exc)
+        system_prompt = _get_edit_system_prompt(edit_mode, instruction, is_node_edit=is_node_edit) # Fallback to original call
+
+    history_block = _build_history_context(chat_history, max_turns=8)
+    if history_block:
+        user_text = (
+            f"RECENT CONVERSATION (for context — resolve pronouns and references from this):\n"
+            f"{history_block}\n\n"
+            f"INSTRUCTION:\n{instruction}\n\n"
+            f"EXISTING HTML TO EDIT:\n{code_to_send}"
+        )
+    else:
+        user_text = f"INSTRUCTION:\n{instruction}\n\nEXISTING HTML TO EDIT:\n{code_to_send}"
+    user_content = _build_user_content(user_text, files)
+
+    try:
+        if cfg.provider == PROVIDER_ANTHROPIC:
+            stream_gen = _stream_anthropic(cfg, system_prompt, user_content)
+        elif cfg.provider == PROVIDER_GOOGLE:
+            stream_gen = _stream_google(cfg, system_prompt, user_content)
+        else:
+            stream_gen = _stream_openai_with_429_fallback(cfg, system_prompt, user_content)
+    except Exception as exc:
+        logger.exception("edit_website_stream failed")
+        raise AIServiceError(f"edit_website_stream error: {exc}") from exc
+
+    _HOLD = 10
+    state = "before_think"
+    hold: str = ""
+    working: str = ""
+    html_parts: list[str] = []
+    tokens_used = 0
+    thinking_started = False
+
+    for item in stream_gen:
+        if item.get("done"):
+            tokens_used = item.get("tokens_used", 0)
+            break
+            
+        # ── Native Provider Thinking (OpenAI reasoning_content / Anthropic / Google) ──
+        if any(k in item for k in ["thinking_start", "thinking_chunk", "thinking_end"]):
+            yield item
+            continue
+            
+        raw = item.get("chunk", "")
+        if not raw: continue
+        
+        # ── HTML Content Handling ──
+        # If we are already in 'after_think' state (default for OpenAI/Anthropic), 
+        # or if we've explicitly moved past the <think> tag.
+        if state == "after_think" or cfg.provider in ["openai", "anthropic", "google"]:
+            html_parts.append(raw)
+            yield {"chunk": raw}
+            continue
+
+        # ── Legacy/Embedded Thought Tag Processing (<think>...</think>) ──
+        working = hold + raw
+        hold = ""
+        if state == "before_think":
+            lo = working.lower()
+            pos = lo.find("<think>")
+            if pos == -1:
+                # Conservative hold to avoid splitting <thin...k>
+                safe_len = max(0, len(working) - _HOLD)
+                safe, hold = working[:safe_len], working[safe_len:]
+                if safe:
+                    html_parts.append(safe)
+                    yield {"chunk": safe}
+                continue
+            after_open = working[pos + len("<think>"):]
+            state = "in_think"
+            working = after_open
+            
+        if state == "in_think":
+            lo = working.lower()
+            pos = lo.find("</think>")
+            if pos == -1:
+                safe_len = max(0, len(working) - _HOLD)
+                safe, hold = working[:safe_len], working[safe_len:]
+                if safe:
+                    if not thinking_started:
+                        yield {"thinking_start": True}
+                        thinking_started = True
+                    yield {"thinking_chunk": safe}
+                continue
+            tail_think = working[:pos]
+            if tail_think:
+                if not thinking_started:
+                    yield {"thinking_start": True}
+                    thinking_started = True
+                yield {"thinking_chunk": tail_think}
+            if thinking_started:
+                yield {"thinking_end": True}
+                thinking_started = False
+            state = "after_think"
+            after_close = working[pos + len("</think>"):].lstrip("\n")
+            if after_close:
+                html_parts.append(after_close)
+                yield {"chunk": after_close}
+
+    if thinking_started: yield {"thinking_end": True}
+    
+    # Final flush: if the AI never closed the think tag, treat the rest as content.
+    # _clean_html will strip the leading <think> if it's there.
+    rem = (working + hold).strip()
+    if rem:
+        if state != "after_think":
+            html_parts.append(rem)
+            yield {"chunk": rem}
+        elif not html_parts:
+            # edge case: after_think but no chunks were actually appended
+            html_parts.append(rem)
+            yield {"chunk": rem}
+
+    joined = "".join(html_parts)
+    logger.info("edit_website_stream: loop finished. joined_len=%d (first 100: %s)", len(joined), joined[:100].replace("\n", " "))
+    if not joined.strip() and not code_to_send.strip():
+        logger.warning("edit_website_stream: both joined and code_to_send are empty. Fallback to full code.")
+        full_code = code
+    else:
+        full_code = _clean_html(joined)
+        # Strict validation: if it's a full-page edit, it MUST have the <html> tag.
+        # If it doesn't, it means the AI returned a snippet/lazy response.
+        if not full_code.strip():
+            logger.warning("edit_website_stream: cleaned output is empty. joined_len=%d. Fallback.", len(joined))
+            full_code = code
+            tokens_used = 0
+        elif not is_node_edit and "<html" not in full_code.lower():
+            logger.warning("edit_website_stream: AI returned snippet for full-page edit (len=%d). Fallback to source.", len(full_code))
+            full_code = code
+            tokens_used = 0
+
+    full_code = _inject_attached_images(full_code, files)
+
+    # Scoped splice-back
+    if is_node_edit and _target_node is not None and _full_soup is not None:
+        try:
+            from bs4 import BeautifulSoup
+            new_soup = BeautifulSoup(full_code, "html.parser")
+            new_node = new_soup.find() or new_soup
+            if hasattr(new_node, "attrs"): new_node.attrs.pop("data-nbx-id", None)
+            _target_node.replace_with(new_node)
+            full_code = str(_full_soup)
+        except Exception as exc:
+            logger.warning("edit_website_stream splice failed: %s", exc)
+
+    # Final logic...
+    yield {"done": True, "full_code": full_code, "tokens_used": tokens_used}
+
+
 def _get_classify_cfgs() -> list:
     """
     Return all available model configs for intent classification,
@@ -2811,6 +3058,7 @@ def _stream_openai(
     cfg: ModelConfig, system: str, user_content: list | str,
 ) -> Generator[dict, None, None]:
     """Stream from OpenAI / compatible. Yields {"chunk":…} then {"done":True,…}."""
+    logger.info("[NBX-FORENSIC] _stream_openai CALL. system_len=%d, content_type=%s", len(system), type(user_content))
     response = _call_openai(cfg, system, user_content, stream=True, max_tokens=cfg.max_output_tokens)
 
     full_parts: List[str] = []

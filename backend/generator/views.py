@@ -40,7 +40,8 @@ from .serializers import (
 )
 from .services.ai_service import (
     AIServiceError, classify_intent, chat_reply, complete_spec, edit_website,
-    extract_spec, generate_website, generate_website_stream, validate_api_key,
+    edit_website_stream, extract_spec, generate_website, generate_website_stream,
+    validate_api_key,
 )
 from .throttling import GenerateFreeThrottle, SpecThrottle
 from .tasks import generate_preview
@@ -318,16 +319,6 @@ def generate_website_view(request):
         or str(spec)
     )
 
-    # ── PAID-ONLY GATE: free plan users with 0 credits cannot generate ──
-    if user.plan == "free" and user.credits <= 0:
-        return Response(
-            {
-                "error": "Generation is currently restricted to Standard Plan users. Please upgrade to continue.",
-                "upgrade_required": True,
-            },
-            status=status.HTTP_402_PAYMENT_REQUIRED,
-        )
-
     # Reserve TU upfront — prevents abuse and ensures credits exist before streaming
     if not user.deduct_credit(TU_RESERVATION):
         return Response(
@@ -440,16 +431,6 @@ def modify_website_view(request):
     user  = request.user
     files = _extract_files(request.data)
 
-    # ── PAID-ONLY GATE: free plan users with 0 credits cannot modify ──
-    if user.plan == "free" and user.credits <= 0:
-        return Response(
-            {
-                "error": "Generation is currently restricted to Standard Plan users. Please upgrade to continue.",
-                "upgrade_required": True,
-            },
-            status=status.HTTP_402_PAYMENT_REQUIRED,
-        )
-
     if not user.deduct_credit(TU_RESERVATION):
         return Response(
             {
@@ -466,32 +447,52 @@ def modify_website_view(request):
 
     ip = get_client_ip(request)
     # Plan-based model switching: free → Gemini Flash, paid → Kimi K2.5
-    _edit_model_override = None if user.plan == "free" else "kimi-k2.5"
+    _edit_model_override = "gemini-2.5-flash" if user.plan == "free" else "kimi-k2.5"
 
-    try:
-        html_code, tokens = edit_website(
-            code, instruction,
-            files=files,
-            nbx_id=nbx_id,
-            edit_mode=edit_mode,
-            scope=scope,
-            chat_history=chat_history,
-            model_override=_edit_model_override,
-        )
-    except AIServiceError as exc:
-        type(user).objects.filter(pk=user.pk).update(credits=F("credits") + TU_RESERVATION)
-        _log(ip, "modify_website", 0, False, str(exc), request)
-        return Response({"error": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
-    except Exception as exc:
-        type(user).objects.filter(pk=user.pk).update(credits=F("credits") + TU_RESERVATION)
-        logger.exception("Unexpected error in modify_website_view")
-        _log(ip, "modify_website", 0, False, str(exc), request)
-        return Response({"error": "Internal error during modification."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    def _stream_edit():
+        try:
+            for item in edit_website_stream(
+                code, instruction,
+                files=files,
+                nbx_id=nbx_id,
+                edit_mode=edit_mode,
+                scope=scope,
+                chat_history=chat_history,
+                model_override=_edit_model_override,
+            ):
+                if item.get("done"):
+                    html_code = _inline_images_to_r2(item["full_code"])
+                    # Emergency fallback if _inline_images_to_r2 returned an empty string
+                    if not (html_code or "").strip():
+                        logger.warning("modify_website_view: html_code is empty after R2 processing. Fallback to original.")
+                        html_code = code
 
-    _reconcile_credits(user, TU_RESERVATION, tokens)
-    _log(ip, "modify_website", tokens, True, None, request)
-    html_code = _inline_images_to_r2(html_code)
-    return Response({"code": html_code, "tokens_used": tokens})
+                    tokens_used = item["tokens_used"]
+                    _reconcile_credits(user, TU_RESERVATION, tokens_used)
+                    _log(ip, "modify_website", tokens_used, True, None, request)
+                    # Send both 'code' and 'full_code' to satisfy all frontend variations
+                    yield json.dumps({
+                        "done": True, 
+                        "code": html_code, 
+                        "full_code": html_code, 
+                        "tokens_used": tokens_used
+                    }) + "\n"
+                else:
+                    yield json.dumps(item) + "\n"
+        except AIServiceError as exc:
+            type(user).objects.filter(pk=user.pk).update(credits=F("credits") + TU_RESERVATION)
+            _log(ip, "modify_website", 0, False, str(exc), request)
+            yield json.dumps({"error": str(exc)}) + "\n"
+        except Exception as exc:
+            type(user).objects.filter(pk=user.pk).update(credits=F("credits") + TU_RESERVATION)
+            logger.exception("Unexpected error in modify_website_view stream")
+            _log(ip, "modify_website", 0, False, str(exc), request)
+            yield json.dumps({"error": "Internal error during modification."}) + "\n"
+
+    response = StreamingHttpResponse(_stream_edit(), content_type="application/x-ndjson")
+    response["X-Accel-Buffering"] = "no"
+    response["Cache-Control"]     = "no-cache"
+    return response
 
 
 # ─────────────────────────────────────────────────────────────────

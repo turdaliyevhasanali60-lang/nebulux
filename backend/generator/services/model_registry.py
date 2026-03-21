@@ -69,7 +69,7 @@ class ModelConfig:
     supports_temperature: bool = True
     supports_top_p: bool = True
     max_output_tokens: int = 4096
-    timeout: int = 60
+    timeout: int = 600
     default_temperature: float = 0.7
     extra_kwargs: Dict[str, Any] = field(default_factory=dict)
     supports_vision: bool = True
@@ -96,7 +96,7 @@ MODEL_REGISTRY: Dict[str, ModelConfig] = {
         model_id="gpt-4o-mini",
         provider=PROVIDER_OPENAI,
         max_output_tokens=1500,
-        timeout=60,
+        timeout=600,
         default_temperature=0.2,
     ),
 
@@ -105,7 +105,7 @@ MODEL_REGISTRY: Dict[str, ModelConfig] = {
         model_id="gpt-4o",
         provider=PROVIDER_OPENAI,
         max_output_tokens=16000,
-        timeout=120,
+        timeout=600,
         default_temperature=0.7,
     ),
 
@@ -114,7 +114,7 @@ MODEL_REGISTRY: Dict[str, ModelConfig] = {
         model_id="gpt-4.1",
         provider=PROVIDER_OPENAI,
         max_output_tokens=16000,
-        timeout=120,
+        timeout=600,
         default_temperature=0.7,
     ),
 
@@ -144,7 +144,7 @@ MODEL_REGISTRY: Dict[str, ModelConfig] = {
         supports_temperature=False,
         supports_top_p=False,
         max_output_tokens=8000,
-        timeout=120,
+        timeout=600,
     ),
 
     "o3": ModelConfig(
@@ -165,7 +165,7 @@ MODEL_REGISTRY: Dict[str, ModelConfig] = {
         supports_temperature=False,
         supports_top_p=False,
         max_output_tokens=8000,
-        timeout=120,
+        timeout=600,
         extra_kwargs={"reasoning_effort": "medium"},
     ),
 
@@ -176,7 +176,7 @@ MODEL_REGISTRY: Dict[str, ModelConfig] = {
         supports_temperature=False,
         supports_top_p=False,
         max_output_tokens=8000,
-        timeout=120,
+        timeout=600,
         extra_kwargs={"reasoning_effort": "medium"},
     ),
 
@@ -190,7 +190,7 @@ MODEL_REGISTRY: Dict[str, ModelConfig] = {
         provider=PROVIDER_ANTHROPIC,
         api_key_setting="ANTHROPIC_API_KEY",
         max_output_tokens=16000,
-        timeout=120,
+        timeout=600,
         default_temperature=0.7,
         supports_vision=True,
     ),
@@ -201,7 +201,7 @@ MODEL_REGISTRY: Dict[str, ModelConfig] = {
         provider=PROVIDER_ANTHROPIC,
         api_key_setting="ANTHROPIC_API_KEY",
         max_output_tokens=16000,
-        timeout=180,
+        timeout=600,
         default_temperature=0.7,
         supports_vision=True,
     ),
@@ -223,7 +223,7 @@ MODEL_REGISTRY: Dict[str, ModelConfig] = {
         provider=PROVIDER_ANTHROPIC,
         api_key_setting="ANTHROPIC_API_KEY",
         max_output_tokens=16000,
-        timeout=120,
+        timeout=600,
         default_temperature=0.7,
         supports_vision=True,
     ),
@@ -249,7 +249,7 @@ MODEL_REGISTRY: Dict[str, ModelConfig] = {
         provider=PROVIDER_GOOGLE,
         api_key_setting="GOOGLE_AI_API_KEY",
         max_output_tokens=32000,
-        timeout=180,
+        timeout=600,
         default_temperature=0.2,
         supports_vision=True,
     ),
@@ -276,7 +276,7 @@ MODEL_REGISTRY: Dict[str, ModelConfig] = {
         api_key_setting="DEEPSEEK_API_KEY",
         base_url="https://api.deepseek.com",
         max_output_tokens=8000,
-        timeout=120,
+        timeout=600,
         default_temperature=0.7,
         supports_vision=False,
     ),
@@ -290,7 +290,7 @@ MODEL_REGISTRY: Dict[str, ModelConfig] = {
         supports_temperature=False,
         supports_top_p=False,
         max_output_tokens=16000,
-        timeout=180,
+        timeout=600,
         supports_vision=False,
     ),
 
@@ -337,7 +337,7 @@ MODEL_REGISTRY: Dict[str, ModelConfig] = {
         api_key_setting="MOONSHOT_API_KEY",
         base_url="https://api.moonshot.ai/v1",
         max_output_tokens=32000,
-        timeout=180,
+        timeout=600,
         default_temperature=1,
         supports_temperature=False,
         supports_top_p=False,
