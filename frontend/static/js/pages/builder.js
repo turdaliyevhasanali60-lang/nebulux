@@ -1315,6 +1315,16 @@ import {
   // Safety net: _handleIframeLoad on 'load' (fires after all subresources).
   el.previewFrame.addEventListener('load', _handleIframeLoad);
 
+  // Strip external CDN scripts that get blocked in the sandboxed iframe preview.
+  // The original HTML is never modified — this only affects the preview rendering path.
+  function _stripExternalScriptsForPreview(html) {
+    return html
+      .replace(/<script\s+src="https:\/\/cdn\.tailwindcss\.com[^"]*"[^>]*><\/script>/gi,
+        '<script>/* Tailwind CDN stripped for preview — active in published site */</script>')
+      .replace(/<script\s+src="https:\/\/cdn\.jsdelivr\.net\/npm\/@supabase[^"]*"[^>]*><\/script>/gi,
+        '');
+  }
+
   function updatePreview(code) {
     if (!isValidUserHTML(code, true)) {
       _showRenderError('⚠️ Invalid HTML. Please try again.');
@@ -1347,6 +1357,9 @@ import {
 
     const metaToken = `<meta name="nebulux-token" content="${_currentToken}">`;
     const guardScript = getGuardScript(_currentToken);
+
+    // Strip blocked CDN scripts for preview only — published/exported HTML is unaffected
+    code = _stripExternalScriptsForPreview(code);
 
     let injectedCode;
     const headMatch = code.match(/<head[^>]*>/i);
