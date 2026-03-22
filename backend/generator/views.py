@@ -1017,6 +1017,13 @@ def publish_full_app_view(request):
             patched_pages = inject_supabase_client(pages, deploy_res["api_url"], deploy_res["anon_key"], contract)
         else:
             patched_pages = pages
+        if has_supabase:
+            from publishing.models import PublishedSite as PS
+            pub = PS.objects.filter(subdomain=subdomain_input.lower(), user=request.user).first()
+            if pub:
+                pub.pages_json = patched_pages
+                pub.save(update_fields=['pages_json'])
+                logger.info("[FullApp] Saved wired pages to PublishedSite: %s", subdomain_input)
 
         # 6. Create ZIP Bundle
         if has_supabase:
