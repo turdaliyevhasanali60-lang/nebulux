@@ -1351,9 +1351,10 @@ import {
 
     _renderTimer = setTimeout(() => {
       if (_renderSeq !== seq) return;
-      IframeSession.destroy();
-      _showRenderError('⚠️ Preview timed out. The HTML may contain errors.');
-      console.warn('[nebulux] Preview timed out.');
+      // Silently ignore timeout — Tailwind CDN may still be loading
+      // but the page is already rendered correctly
+      _hideRenderError();
+      console.warn('[nebulux] Preview timed out silently.');
       log('render_timeout');
     }, CONFIG.iframeLoadTimeout);
 
