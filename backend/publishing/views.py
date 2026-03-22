@@ -27,12 +27,27 @@ def _slug_error(slug):
 @permission_classes([IsAuthenticated])
 def check_subdomain(request):
     slug = request.GET.get("subdomain", "").strip().lower()
+    generation_id = request.GET.get("generation_id", "").strip()
+
     err = _slug_error(slug)
     if err:
         return Response({"available": False, "error": err})
-    taken = PublishedSite.objects.filter(subdomain=slug).exclude(user=request.user).exists()
-    if taken:
+
+    # Check if subdomain is taken by another user
+    taken_by_other = PublishedSite.objects.filter(subdomain=slug).exclude(user=request.user).exists()
+    if taken_by_other:
         return Response({"available": False, "error": "This subdomain is already taken."})
+
+    # Check if subdomain is taken by the same user but a different project
+    if generation_id:
+        taken_by_own_other_project = PublishedSite.objects.filter(
+            subdomain=slug,
+            user=request.user,
+            is_active=True,
+        ).exclude(generation_id=generation_id).exists()
+        if taken_by_own_other_project:
+            return Response({"available": False, "error": "You're already using this subdomain for another project."})
+
     return Response({"available": True})
 
 

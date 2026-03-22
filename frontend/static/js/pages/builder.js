@@ -5885,7 +5885,8 @@ window._nebuluxGetPages = function () { return state.pages || []; };
 
   async function _checkSubdomain(slug) {
     try {
-      const res = await _apiFetch(`/api/publishing/check/?subdomain=${encodeURIComponent(slug)}`);
+      const genId = window._nebuluxGetGenId?.();
+      const res = await _apiFetch(`/api/publishing/check/?subdomain=${encodeURIComponent(slug)}&generation_id=${encodeURIComponent(genId || '')}`);
       const data = await res.json();
       if (data.available) {
         subdomainStatus.textContent = '✓ Available';
