@@ -1023,7 +1023,9 @@ def publish_full_app_view(request):
             if pub:
                 pub.pages_json = patched_pages
                 pub.save(update_fields=['pages_json'])
-                logger.info("[FullApp] Saved wired pages to PublishedSite: %s", subdomain_input)
+                gen.pages_json = patched_pages
+                gen.save(update_fields=['pages_json'])
+                logger.info("[FullApp] Saved wired pages to generation: %s", subdomain_input)
 
         # 6. Create ZIP Bundle
         if has_supabase:
