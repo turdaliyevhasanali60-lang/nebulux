@@ -565,5 +565,10 @@ LS_CREDIT_MAP.update({k: v for k, v in _ls_variant_credit_map.items() if k})
 
 SITE_URL = "https://nebulux.one"  # no trailing slash
 
+# ─── Supabase Management API ──────────────────────────────────────
+# Personal access token from supabase.com/dashboard/account/tokens
+# Used server-side only for auto-creating tables via the Management API.
+SUPABASE_ACCESS_TOKEN = config("SUPABASE_ACCESS_TOKEN", default="")
+
 # ─── Pexels  ───────────────────────────────────────────────────────
 PEXELS_API_KEY = config('PEXELS_API_KEY', default='')

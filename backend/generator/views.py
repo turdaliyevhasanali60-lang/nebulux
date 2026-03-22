@@ -1006,7 +1006,6 @@ def publish_full_app_view(request):
                 supabase_url=deploy_res["api_url"],
                 supabase_anon_key=deploy_res["anon_key"],
                 contract=contract,
-                supabase_service_key=supabase_service_key,
             )
             if table_result["tables_created"]:
                 logger.info("[FullApp] Tables created in Supabase: %s", table_result["tables_created"])
