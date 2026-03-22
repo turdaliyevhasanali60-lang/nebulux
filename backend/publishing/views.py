@@ -122,6 +122,8 @@ def publish_status(request, generation_id):
     try:
         generation = WebsiteGeneration.objects.get(id=generation_id, user=request.user)
         site = generation.published_site
+        if not site.is_active:
+            raise PublishedSite.DoesNotExist
         return Response({
             "is_published": True,
             "subdomain": site.subdomain,
