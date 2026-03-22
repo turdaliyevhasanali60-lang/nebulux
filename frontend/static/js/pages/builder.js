@@ -4504,7 +4504,9 @@ $$('.device-btn').forEach(btn => {
 /* ============================================================
    SELECT MODE BUTTON
 ============================================================ */
-$('#selectModeBtn')?.addEventListener('click', () => setSelectMode(!state.selectMode));
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('selectModeBtn')?.addEventListener('click', () => setSelectMode(!state.selectMode));
+});
 
 /* ============================================================
    ELEMENT EDITOR EVENTS

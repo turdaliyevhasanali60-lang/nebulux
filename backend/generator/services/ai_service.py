@@ -677,6 +677,23 @@ _GENERATE_SYSTEM_PROMPT_BASE = """You are a senior UX/UI designer AND senior fro
 Quality bar: Awwwards / Apple / Stripe / Linear. Every result must feel like a real, hand-crafted professional website.
 
 ════════════════════════════════════════════════════════════
+PAGE COMPLETENESS RULES
+════════════════════════
+- If the app requires authentication, ALWAYS generate these pages at minimum:
+  signup, login, and at least one protected page
+- If the app has any public submission form (contact form, job post, waitlist,
+  order form, etc.), it MUST live on a standalone index/homepage page —
+  never merged into a dashboard or protected page
+- NEVER merge a public-facing page with an auth-protected page
+- Every navigation link referenced in any page MUST have a corresponding
+  generated page — if a nav has "Admin", "Dashboard", "Profile" etc.,
+  those pages must exist
+- Generate ALL pages implied by the prompt in a single pass — do not
+  stop early or merge pages to reduce count
+- Page naming convention: index, login, signup, dashboard, admin, profile
+  — use these exact names when the app calls for them
+
+════════════════════════════════════════════════════════════
 THINKING REQUIREMENT — MANDATORY FIRST STEP
 ════════════════════════════════════════════════════════════
 Before writing ANY HTML, open a <think> block and fill in EVERY field below.
@@ -1392,23 +1409,6 @@ SEO META TAGS
     "description": "[description]"
   }
   </script>
-
-════════════════════════════════════════════════════════════
-PAGE COMPLETENESS RULES
-════════════════════════
-- If the app requires authentication, ALWAYS generate these pages at minimum:
-  signup, login, and at least one protected page
-- If the app has any public submission form (contact form, job post, waitlist,
-  order form, etc.), it MUST live on a standalone index/homepage page —
-  never merged into a dashboard or protected page
-- NEVER merge a public-facing page with an auth-protected page
-- Every navigation link referenced in any page MUST have a corresponding
-  generated page — if a nav has "Admin", "Dashboard", "Profile" etc.,
-  those pages must exist
-- Generate ALL pages implied by the prompt in a single pass — do not
-  stop early or merge pages to reduce count
-- Page naming convention: index, login, signup, dashboard, admin, profile
-  — use these exact names when the app calls for them
 
 ════════════════════════════════════════════════════════════
 TECHNICAL RULES
