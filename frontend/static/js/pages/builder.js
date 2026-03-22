@@ -51,7 +51,7 @@ import {
     autoSaveInterval: 30000,
     maxHistory: 20,
     dataVersion: 3,
-    iframeLoadTimeout: 45000,
+    iframeLoadTimeout: 90000,
   };
 
   /* ============================================================
@@ -1319,8 +1319,6 @@ import {
   // The original HTML is never modified — this only affects the preview rendering path.
   function _stripExternalScriptsForPreview(html) {
     return html
-      .replace(/<script\s+src="https:\/\/cdn\.tailwindcss\.com[^"]*"[^>]*><\/script>/gi,
-        '<script>/* Tailwind CDN stripped for preview — active in published site */</script>')
       .replace(/<script\s+src="https:\/\/cdn\.jsdelivr\.net\/npm\/@supabase[^"]*"[^>]*><\/script>/gi,
         '');
   }
