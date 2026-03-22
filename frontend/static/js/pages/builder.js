@@ -5952,7 +5952,7 @@ window._nebuluxGetPages = function () { return state.pages || []; };
     unpublishBtn.textContent = 'Unpublishing…';
     try {
       const res = await _apiFetch(`/api/publishing/unpublish/${genId}/`, { method: 'DELETE' });
-      if (res.ok) {
+      if (res && res.ok !== false) {
         _currentStatus = null;
         _showUnpublished();
       }
