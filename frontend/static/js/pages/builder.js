@@ -1319,8 +1319,14 @@ import {
   // The original HTML is never modified — this only affects the preview rendering path.
   function _stripExternalScriptsForPreview(html) {
     return html
-      .replace(/<script\s+src="https:\/\/cdn\.jsdelivr\.net\/npm\/@supabase[^"]*"[^>]*><\/script>/gi,
-        '');
+      .replace(
+        /<script\s+src="https:\/\/cdn\.tailwindcss\.com[^"]*"[^>]*><\/script>/gi,
+        '<script src="/static/css/tailwind.min.js"></script>'
+      )
+      .replace(
+        /<script\s+src="https:\/\/cdn\.jsdelivr\.net\/npm\/@supabase[^"]*"[^>]*><\/script>/gi,
+        ''
+      );
   }
 
   function updatePreview(code) {

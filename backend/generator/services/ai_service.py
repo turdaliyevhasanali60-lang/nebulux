@@ -1362,7 +1362,7 @@ CTA BAND TEXT:
 ════════════════════════════════════════════════════════════
 TAILWIND CSS
 ════════════════════════════════════════════════════════════
-- Always include <script src="https://cdn.tailwindcss.com"></script> as the FIRST script tag inside <head>
+- Always include <script src="/static/css/tailwind.min.js"></script> as the FIRST script tag inside <head>
 - Use Tailwind utility classes for all layout, spacing, typography, and responsive design
 - Do NOT write custom CSS for anything Tailwind can handle (margins, padding, flex, grid, colors, font sizes)
 - Custom CSS (liquid glass effects, animations, keyframes) is still allowed — keep it in a <style> tag
