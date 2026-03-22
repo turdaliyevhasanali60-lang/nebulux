@@ -6019,6 +6019,7 @@ window._nebuluxGetPages = function () { return state.pages || []; };
       // Read Supabase credentials
       const supabaseUrl = document.getElementById('supabaseUrlInput')?.value.trim() || '';
       const supabaseAnonKey = document.getElementById('supabaseAnonKeyInput')?.value.trim() || '';
+      const supabaseServiceKey = document.getElementById('supabaseServiceKeyInput')?.value.trim() || '';
 
       // Validate — show inline status if missing (still allow bundle generation without backend)
       const supabaseStatus = document.getElementById('supabaseConnectStatus');
@@ -6059,6 +6060,7 @@ window._nebuluxGetPages = function () { return state.pages || []; };
             subdomain: subdomain,
             supabase_url: supabaseUrl,
             supabase_anon_key: supabaseAnonKey,
+            supabase_service_key: supabaseServiceKey,
         })
       });
 

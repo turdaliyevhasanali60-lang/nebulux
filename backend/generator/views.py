@@ -989,6 +989,7 @@ def publish_full_app_view(request):
         # 4. Read user-provided Supabase credentials (optional)
         supabase_url = request.data.get("supabase_url", "").strip()
         supabase_anon_key = request.data.get("supabase_anon_key", "").strip()
+        supabase_service_key = request.data.get("supabase_service_key", "").strip()
 
         has_supabase = bool(supabase_url and supabase_anon_key)
 
@@ -997,6 +998,7 @@ def publish_full_app_view(request):
             "anon_key": supabase_anon_key if has_supabase else None,
             "error": None,
         }
+        deploy_res["service_key"] = supabase_service_key
 
         # 4b. Auto-create Supabase tables from contract (best effort)
         if has_supabase:
@@ -1004,6 +1006,7 @@ def publish_full_app_view(request):
                 supabase_url=deploy_res["api_url"],
                 supabase_anon_key=deploy_res["anon_key"],
                 contract=contract,
+                supabase_service_key=supabase_service_key,
             )
             if table_result["tables_created"]:
                 logger.info("[FullApp] Tables created in Supabase: %s", table_result["tables_created"])

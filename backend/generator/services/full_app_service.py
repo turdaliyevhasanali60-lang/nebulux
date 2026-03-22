@@ -532,10 +532,10 @@ def _merge_wired_scripts(original_html: str, wired_html: str) -> str:
     return result
 
 
-def create_supabase_tables(supabase_url: str, supabase_anon_key: str, contract: Dict[str, Any]) -> Dict[str, Any]:
+def create_supabase_tables(supabase_url: str, supabase_anon_key: str, contract: Dict[str, Any], supabase_service_key: str = "") -> Dict[str, Any]:
     """
-    Creates tables in Supabase using the PostgREST SQL endpoint.
-    Best-effort — errors are logged but never block the ZIP download.
+    Creates tables in Supabase using the Management API (service role key) or
+    PostgREST fallback (anon key). Best-effort — errors never block the ZIP download.
     Returns { success: bool, tables_created: [...], errors: [...] }
     """
     import requests as _requests
@@ -585,16 +585,37 @@ def create_supabase_tables(supabase_url: str, supabase_anon_key: str, contract: 
         sql = f"create table if not exists {table_name} ({', '.join(cols)});"
 
         try:
-            res = _requests.post(
-                f"{supabase_url.rstrip('/')}/rest/v1/rpc/query",
-                headers={
-                    "apikey": supabase_anon_key,
-                    "Authorization": f"Bearer {supabase_anon_key}",
-                    "Content-Type": "application/json",
-                },
-                json={"query": sql},
-                timeout=30,
-            )
+            # Use service role key if provided — allows DDL (CREATE TABLE)
+            # Fall back to anon key which likely won't work for DDL
+            auth_key = supabase_service_key if supabase_service_key else supabase_anon_key
+
+            # Extract project ref from URL for Management API
+            ref_match = re.search(r'https://([a-z0-9]+)\.supabase\.co', supabase_url)
+            project_ref = ref_match.group(1) if ref_match else None
+
+            if project_ref and supabase_service_key:
+                # Use Supabase Management API — requires service role key
+                res = _requests.post(
+                    f"https://api.supabase.com/v1/projects/{project_ref}/database/query",
+                    headers={
+                        "Authorization": f"Bearer {supabase_service_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={"query": sql},
+                    timeout=30,
+                )
+            else:
+                # Fallback to PostgREST — likely fails for DDL without service key
+                res = _requests.post(
+                    f"{supabase_url.rstrip('/')}/rest/v1/rpc/query",
+                    headers={
+                        "apikey": auth_key,
+                        "Authorization": f"Bearer {auth_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={"query": sql},
+                    timeout=30,
+                )
             if res.ok:
                 tables_created.append(table_name)
                 logger.info("[FullApp] Created table: %s", table_name)
