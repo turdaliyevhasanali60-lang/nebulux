@@ -8,6 +8,7 @@ urlpatterns = [
     path("spec/complete/", views.complete_spec_view,   name="complete-spec"),
     path("generate/",      views.generate_website_view, name="generate-website"),
     path("modify/",        views.modify_website_view,   name="modify-website"),
+    path("publish/",       views.publish_full_app_view, name="publish-full-app"),
 
     # ── Chat utilities (no credit deduction)
     path("intent/",        views.intent_view,           name="intent"),
@@ -17,6 +18,12 @@ urlpatterns = [
     path("websites/",                        views.list_generations,  name="list-generations"),
     path("websites/<int:generation_id>/",    views.get_generation,    name="get-generation"),
     path("websites/<int:generation_id>/delete/", views.delete_generation, name="delete-generation"),
+
+    # ── Version history (DATA-2)
+    path("websites/<int:generation_id>/snapshots/",
+         views.list_snapshots,  name="list-snapshots"),
+    path("websites/<int:generation_id>/snapshots/<int:snapshot_id>/restore/",
+         views.restore_snapshot, name="restore-snapshot"),
 
     # ── Ops
     path("image/", views.pexels_image, name="pexels-image"),

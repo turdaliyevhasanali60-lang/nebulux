@@ -33,6 +33,7 @@ from .model_registry import (
     PROVIDER_OPENAI,
     ModelConfig,
     get_model_config,
+    get_fallback_model_config,
 )
 
 logger = logging.getLogger(__name__)
@@ -49,41 +50,50 @@ def _load_design_tokens(css_path: str | None = None) -> str:
     system prompts.  Falls back gracefully if the file cannot be read.
     """
     if css_path is None:
-        # FIX: Look in the actual Django static files directory first, which is
-        # where builder.css lives in the project structure (frontend/static/css/).
-        # The previous implementation only searched relative to the Python file,
-        # which is inside the Django app package — entirely the wrong location in
-        # every real deployment, causing silent token-injection failure.
-        candidates: list[Path] = []
-
+        # ARCH-3: Check explicit Django setting first — this is the only path
+        # that works reliably across dev, Docker, and gunicorn deployments.
+        # Set BUILDER_CSS_PATH in settings.py to an absolute path to builder.css.
         try:
             from django.conf import settings as _dj_settings
-            # STATICFILES_DIRS contains the frontend/static directory
-            for static_dir in getattr(_dj_settings, "STATICFILES_DIRS", []):
-                candidates.append(Path(static_dir) / "css" / "builder.css")
-            # STATIC_ROOT is where collectstatic puts files in production
-            static_root = getattr(_dj_settings, "STATIC_ROOT", None)
-            if static_root:
-                candidates.append(Path(static_root) / "css" / "builder.css")
+            explicit = getattr(_dj_settings, "BUILDER_CSS_PATH", None)
+            if explicit and Path(explicit).exists():
+                css_path = str(explicit)
         except Exception:
             pass
 
-        # Legacy fallback paths (relative to this file's directory)
-        here = Path(__file__).resolve().parent
-        candidates += [
-            here / "builder.css",
-            here.parent / "builder.css",
-            here.parent.parent / "builder.css",
-            here.parent.parent.parent / "frontend" / "static" / "css" / "builder.css",
-            Path(os.getcwd()) / "builder.css",
-            Path(os.getcwd()) / "frontend" / "static" / "css" / "builder.css",
-        ]
+        if css_path is None:
+            candidates: list[Path] = []
+            try:
+                from django.conf import settings as _dj_settings
+                # STATICFILES_DIRS contains the frontend/static directory
+                for static_dir in getattr(_dj_settings, "STATICFILES_DIRS", []):
+                    candidates.append(Path(static_dir) / "css" / "builder.css")
+                # STATIC_ROOT is where collectstatic puts files in production
+                static_root = getattr(_dj_settings, "STATIC_ROOT", None)
+                if static_root:
+                    candidates.append(Path(static_root) / "css" / "builder.css")
+            except Exception:
+                pass
 
-        css_path_obj = next((p for p in candidates if p.exists()), None)
-        if css_path_obj is None:
-            logger.warning("builder.css not found in any candidate path — design token injection skipped.")
-            return ""
-        css_path = str(css_path_obj)
+            # Legacy fallback paths (relative to this file's directory)
+            here = Path(__file__).resolve().parent
+            candidates += [
+                here / "builder.css",
+                here.parent / "builder.css",
+                here.parent.parent / "builder.css",
+                here.parent.parent.parent / "frontend" / "static" / "css" / "builder.css",
+                Path(os.getcwd()) / "builder.css",
+                Path(os.getcwd()) / "frontend" / "static" / "css" / "builder.css",
+            ]
+
+            css_path_obj = next((p for p in candidates if p.exists()), None)
+            if css_path_obj is None:
+                logger.warning(
+                    "builder.css not found — set BUILDER_CSS_PATH in settings.py "
+                    "for reliable design token injection."
+                )
+                return ""
+            css_path = str(css_path_obj)
 
     try:
         css_text = Path(css_path).read_text(encoding="utf-8")
@@ -136,6 +146,24 @@ def _is_valid_html(code: str) -> bool:
     has_body  = bool(_re.search(r'<body[\s>]',  t, _re.IGNORECASE))
     has_close = bool(_re.search(r'</html>',      t, _re.IGNORECASE))
     return has_html and has_body and has_close
+
+
+def _is_likely_truncated(code: str, max_output_tokens: int) -> bool:
+    """
+    AI-1: Detect responses that were cut off at the model's token limit.
+
+    A response that passes _is_valid_html() can still be truncated mid-element
+    if the model found the closing tags before filling its context (e.g. it
+    generated a partial <script> block, then emitted </html> to close).
+
+    Heuristic: HTML/CSS/JS averages ~3 characters per output token.
+    If the response length is within 95% of max_output_tokens we treat it as
+    likely truncated and force a retry regardless of structural validity.
+    """
+    if not code or max_output_tokens <= 0:
+        return False
+    estimated_tokens = len(code) / 3
+    return estimated_tokens >= max_output_tokens * 0.95
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1332,10 +1360,44 @@ CTA BAND TEXT:
 - One button only
 
 ════════════════════════════════════════════════════════════
+TAILWIND CSS
+════════════════════════════════════════════════════════════
+- Always include <script src="https://cdn.tailwindcss.com"></script> as the FIRST script tag inside <head>
+- Use Tailwind utility classes for all layout, spacing, typography, and responsive design
+- Do NOT write custom CSS for anything Tailwind can handle (margins, padding, flex, grid, colors, font sizes)
+- Custom CSS (liquid glass effects, animations, keyframes) is still allowed — keep it in a <style> tag
+- Do NOT use @apply, @layer, or any Tailwind directives — CDN mode does not support them
+- Do NOT import Tailwind via npm or any build tool
+- Responsive design: always use Tailwind breakpoint prefixes (sm:, md:, lg:) — never write media queries manually
+
+SEMANTIC HTML
+════════════════════════════════════════════════════════════
+- Use proper semantic tags throughout: <header>, <main>, <footer>, <section>, <article>, <nav>, <aside>
+- Every <img> must have a meaningful alt attribute describing the image content
+- Headings must follow hierarchy: one <h1> per page, then <h2>, <h3> in order
+
+SEO META TAGS
+════════════════════════════════════════════════════════════
+- Every generated page must include these tags inside <head>:
+  <meta name="description" content="[relevant description based on the site]">
+  <meta property="og:title" content="[site title]">
+  <meta property="og:description" content="[description]">
+  <meta property="og:type" content="website">
+  <link rel="canonical" href="">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    "name": "[site name]",
+    "description": "[description]"
+  }
+  </script>
+
+════════════════════════════════════════════════════════════
 TECHNICAL RULES
 ════════════════════════════════════════════════════════════
 :root vars in every page. Container: max-width:1200px; margin:0 auto; padding:0 24px.
-Section padding: min 80px 0. No Bootstrap/Tailwind. No inline styles.
+Section padding: min 80px 0. No Bootstrap. No inline styles.
 NEVER use base64/data URIs for images (`src="data:image/..."`). Always use `/api/image/?q={keyword}&w={w}&h={h}` instead.
 Real copy — no lorem ipsum. Return ONLY <think>+page markers+raw HTML.
 {token_block}
@@ -1830,6 +1892,54 @@ def _dispatch(
     return _call_openai(cfg, system, user_content, stream=stream, max_tokens=max_tokens)
 
 
+# Error substrings that indicate a provider-level failure (rate-limit / server error)
+# where falling back to a different provider makes sense.
+_PROVIDER_TRANSIENT_ERRORS = (
+    "rate limit", "ratelimit", "429", "503", "502",
+    "overloaded", "capacity", "timeout", "connection",
+)
+
+
+def _dispatch_with_fallback(
+    cfg: ModelConfig,
+    task: str,
+    system: str,
+    user_content: list | str,
+    stream: bool = False,
+    max_tokens: int | None = None,
+) -> Any:
+    """
+    ARCH-4: Call _dispatch with automatic fallback to a secondary provider.
+
+    If the primary call raises an exception whose message matches a known
+    transient error pattern, the fallback model (from get_fallback_model_config)
+    is tried once.  If the fallback also fails, the original exception is raised.
+
+    Streaming responses cannot be retried mid-stream, so fallback only applies
+    to non-streaming calls.
+    """
+    try:
+        return _dispatch(cfg, system, user_content, stream=stream, max_tokens=max_tokens)
+    except Exception as primary_exc:
+        # Only attempt fallback for non-streaming calls and known transient errors.
+        if stream:
+            raise
+        exc_str = str(primary_exc).lower()
+        is_transient = any(pat in exc_str for pat in _PROVIDER_TRANSIENT_ERRORS)
+        if not is_transient:
+            raise
+
+        fallback_cfg = get_fallback_model_config(task)
+        if fallback_cfg is None or fallback_cfg.model_id == cfg.model_id:
+            raise
+
+        logger.warning(
+            "ARCH-4: Primary model %s failed (%s). Retrying with fallback %s.",
+            cfg.name, primary_exc, fallback_cfg.name,
+        )
+        return _dispatch(fallback_cfg, system, user_content, stream=False, max_tokens=max_tokens)
+
+
 def _extract_text(response: Any, cfg: ModelConfig) -> Tuple[str, int]:
     """Extract text content and token count from a provider response.
 
@@ -2084,11 +2194,25 @@ def generate_website(
                 )
                 logger.warning("generate_website: retry %d — correcting invalid HTML.", attempt)
 
-            response = _dispatch(cfg, current_system, user_content, max_tokens=cfg.max_output_tokens)
+            response = _dispatch_with_fallback(
+                cfg, "generate", current_system, user_content,
+                max_tokens=cfg.max_output_tokens,
+            )
             html, tokens = _extract_text(response, cfg)
             cleaned = _clean_html(html)
             last_html = cleaned
             last_tokens = tokens
+
+            # AI-1: If the response consumed nearly all available tokens it was
+            # almost certainly truncated — force a retry even if structural tags
+            # are present (the model may have emitted </html> after a partial doc).
+            if _is_likely_truncated(cleaned, cfg.max_output_tokens):
+                logger.warning(
+                    "generate_website: response near token limit "
+                    "(%d chars ≈ %d tokens vs limit %d) — likely truncated, retrying.",
+                    len(cleaned), int(len(cleaned) / 3), cfg.max_output_tokens,
+                )
+                continue
 
             # Fix 6: the model emits multi-page output (multiple full HTML docs separated
             # by ---PAGE:slug--- markers).  _is_valid_html() sees the whole concatenated

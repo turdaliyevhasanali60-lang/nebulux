@@ -17,9 +17,60 @@
     user-select: none;
     -webkit-user-select: none;
   }
+
+  /* DATA-3: Server save failure banner */
+  #serverSaveErrorBar {
+    position: fixed;
+    bottom: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #dc2626;
+    color: #fff;
+    font-size: 12px;
+    padding: 7px 16px;
+    border-radius: 6px;
+    z-index: 9999;
+    white-space: nowrap;
+    box-shadow: 0 2px 8px rgba(0,0,0,.4);
+  }
+
+  /* FE-6: Edit mode indicator bar */
+  .edit-mode-bar {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px 2px;
+    font-size: 10px;
+    color: var(--text-muted, #888);
+  }
+  .edit-mode-bar .mode-label {
+    margin-right: 2px;
+    opacity: 0.6;
+    white-space: nowrap;
+  }
+  .mode-btn {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    padding: 2px 7px;
+    font-size: 10px;
+    cursor: pointer;
+    color: var(--text-muted, #888);
+    transition: all 0.15s;
+    line-height: 1.5;
+  }
+  .mode-btn:hover { border-color: var(--border, #333); color: var(--text, #eee); }
+  .mode-btn.active {
+    background: var(--accent, #6366f1);
+    border-color: var(--accent, #6366f1);
+    color: #fff;
+    font-weight: 500;
+  }
 </style>
 </head>
 <body>
+<!-- DATA-3: server save failure banner — shown briefly when all PATCH retries fail -->
+<div id="serverSaveErrorBar" hidden>⚠️ Changes couldn't reach the server — check your connection and press Save.</div>
 <header class="topbar">
   <div class="topbar-left">
     <a href="/" class="logo-back" title="Back to home">
@@ -122,7 +173,7 @@
         <div class="dynamic-island"></div>
       </div>
       <iframe id="previewFrame" class="preview-frame"
-      sandbox="allow-scripts allow-same-origin allow-forms"></iframe>
+      sandbox="allow-scripts allow-forms"></iframe>
     </div>
     <div class="render-error" id="renderError">
       <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
@@ -180,6 +231,13 @@
         </div>
         <div class="chat-file-previews" id="chatFilePreviews"></div>
         <div id="pending-files-preview" class="pending-files-preview"></div>
+        <div class="edit-mode-bar" id="editModeBar">
+          <span class="mode-label">Mode:</span>
+          <button class="mode-btn active" data-mode="" title="AI picks the right edit mode">Auto</button>
+          <button class="mode-btn" data-mode="content" title="Text &amp; copy only — no structural changes">Content</button>
+          <button class="mode-btn" data-mode="style" title="Colors, fonts, spacing only — no text changes">Style</button>
+          <button class="mode-btn" data-mode="layout" title="Structure &amp; layout only — no text or styles">Layout</button>
+        </div>
           <div class="chat-input-wrap">
           <button id="attachBtn" class="attach-btn" title="Attach files" aria-label="Attach files">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -187,7 +245,7 @@
             </svg>
             <span class="attach-badge" id="attachBadge">0</span>
           </button>
-          <input type="file" id="fileInput" multiple accept="image/*" hidden>
+          <input type="file" id="fileInput" multiple accept="image/*,.txt,.html,.css,.js,.json,.pdf,.md,.csv,.py" hidden>
           <textarea class="chat-input" id="chatInput" placeholder="Describe a change…" rows="1"></textarea>
           <button id="sendBtn" class="send-btn" title="Send" aria-label="Send message">
             <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true">
@@ -246,7 +304,9 @@
 
     <!-- Not yet published state -->
     <div id="unpublishedState">
-      <p class="publish-hint">Choose a subdomain for your site:</p>
+
+      <!-- Shared subdomain input -->
+      <p class="publish-hint">Choose a subdomain:</p>
       <div class="publish-subdomain-row">
         <div class="publish-subdomain-input-wrap">
           <input class="publish-subdomain-input" id="publishSubdomainInput" type="text"
@@ -255,10 +315,66 @@
         </div>
         <span class="publish-subdomain-status" id="subdomainStatus"></span>
       </div>
+
+      <div class="publish-panel-divider" style="margin: 16px 0; border-top: 1px solid rgba(255,255,255,0.08);"></div>
+
+      <!-- Option A: Just publish -->
+      <p class="publish-hint" style="font-weight: 600; margin-bottom: 8px; font-size:12px;">Option A — Just publish</p>
       <button class="publish-go-btn" id="publishGoBtn" disabled>
         <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2l9 7-9 7-9-7 9-7z"/><path d="M3 17l9 5 9-5"/></svg>
         Publish site
       </button>
+
+      <div class="publish-panel-divider" style="margin: 16px 0; border-top: 1px solid rgba(255,255,255,0.08);"></div>
+
+      <!-- Option B: Publish + Backend -->
+      <p class="publish-hint" style="color: #6366f1; font-weight: 600; margin-bottom: 4px; font-size:12px;">Option B — Add a Backend (optional)</p>
+      <p class="publish-hint" style="font-size: 11px; opacity: 0.6; margin-top: 0; margin-bottom: 14px;">Connect Supabase to give your site a real database, user login, and API — free.</p>
+
+      <!-- Supabase Connect Section -->
+      <div id="supabaseConnectSection" style="margin-top:4px;">
+        <div style="font-size:12px; color:rgba(255,255,255,0.55); margin-bottom:12px; line-height:1.6;">
+          <span style="color:rgba(255,255,255,0.3); font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.08em; display:block; margin-bottom:8px;">How to connect</span>
+          <span style="display:flex; align-items:flex-start; gap:8px; margin-bottom:6px;">
+            <span style="color:#3ecf8e; font-weight:700; min-width:16px;">1</span>
+            <span>Create a free project at <a href="https://supabase.com" target="_blank" style="color:#3ecf8e; text-decoration:none;">supabase.com</a></span>
+          </span>
+          <span style="display:flex; align-items:flex-start; gap:8px; margin-bottom:6px;">
+            <span style="color:#3ecf8e; font-weight:700; min-width:16px;">2</span>
+            <span>Go to <strong style="color:rgba(255,255,255,0.8);">Settings → API Keys</strong> in your project</span>
+          </span>
+          <span style="display:flex; align-items:flex-start; gap:8px; margin-bottom:6px;">
+            <span style="color:#3ecf8e; font-weight:700; min-width:16px;">3</span>
+            <span>Copy your <strong style="color:rgba(255,255,255,0.8);">Project URL</strong> and <strong style="color:rgba(255,255,255,0.8);">Publishable key</strong></span>
+          </span>
+          <span style="display:flex; align-items:flex-start; gap:8px; margin-bottom:12px;">
+            <span style="color:#3ecf8e; font-weight:700; min-width:16px;">4</span>
+            <span>Paste them below and click <strong style="color:rgba(255,255,255,0.8);">Publish &amp; Download</strong></span>
+          </span>
+        </div>
+        <input
+          id="supabaseUrlInput"
+          type="text"
+          placeholder="Project URL — https://xxxx.supabase.co"
+          style="width:100%; box-sizing:border-box; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); border-radius:8px; padding:8px 12px; font-size:12px; color:#fff; margin-bottom:6px; outline:none;"
+        />
+        <input
+          id="supabaseAnonKeyInput"
+          type="password"
+          placeholder="Publishable key — sb_publishable_..."
+          style="width:100%; box-sizing:border-box; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); border-radius:8px; padding:8px 12px; font-size:12px; color:#fff; margin-bottom:6px; outline:none;"
+        />
+        <div id="supabaseConnectStatus" style="font-size:11px; color:rgba(255,255,255,0.4); margin-bottom:10px; min-height:16px;"></div>
+      </div>
+
+      <button class="publish-go-btn" id="publishFullBtn" style="background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%); border: none; color: white;">
+        <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2v20M2 12h20M12 2l-4 4M12 2l4 4"/></svg>
+        Publish &amp; Download Bundle
+      </button>
+      <p style="font-size:11px; color:rgba(255,255,255,0.35); margin-top:8px; margin-bottom:0; line-height:1.5; text-align:center;">
+        Publishes your site live + downloads a ZIP backup.<br>
+        Supabase credentials are optional.
+      </p>
     </div>
 
   </div>
@@ -427,7 +543,7 @@
 </script>
 <script src="{% static 'js/core/auth.js' %}"></script>
 <script src="{% static 'js/core/api.js' %}"></script>
-<script src="{% static 'js/pages/builder.js' %}"></script>
+<script type="module" src="{% static 'js/pages/builder.js' %}"></script>
 <script>
   document.addEventListener("DOMContentLoaded", function() {
     if (window.innerWidth <= 768) {

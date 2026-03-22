@@ -1,3 +1,16 @@
+// FE-1: Import pure utility functions from the dedicated utils module.
+// These are accessible inside the IIFE below via closure (module scope → IIFE scope).
+import {
+  delay,
+  escapeHtml,
+  highlightHTML,
+  highlightCSS,
+  prettifyHTML,
+  prettifyCSS,
+  formatCodeWithLineNumbers,
+  extractCSS,
+} from './builder-utils.js';
+
 /**
  * NEBULUX Builder — Production-Ready
  *
@@ -56,6 +69,7 @@
     selectMode: false,
     selectedElement: null,
     lastGenerationId: null,
+    editMode: null,    // FE-6: active mode pill — null|'content'|'style'|'layout'
     createdAt: Date.now(),  // preserved across saves for registry
     files: [],             // attached files: [{name, type, data(base64), preview?}]
   };
@@ -166,6 +180,8 @@
     pageDropdown: $('#pageDropdown'),
     pageList: $('#pageList'),
     addPageBtn: $('#addPageBtn'),
+    publishFullBtn: $('#publishFullBtn'),
+    editModeBar: $('#editModeBar'),
 
   };
 
@@ -2933,7 +2949,20 @@
         _setGenerating(false);
       } catch (err) {
         _setGenerating(false);
-        addErrorWithRetry(`Error: ${err.message}`, () => modifyWebsite(instruction, editMode));
+        // FE-6: If it's a VIOLATION error, surface the active mode so the user
+        // understands why their instruction was blocked and how to fix it.
+        const isViolation = err.message && err.message.includes('VIOLATION') || err.message.includes('blocked');
+        if (isViolation && editMode) {
+          const modeDescriptions = {
+            content: 'Content mode only allows text changes. Switch to Auto or use /style or /layout for other changes.',
+            style:   'Style mode only allows color, font, and spacing changes. Switch to Auto or use /content or /layout.',
+            layout:  'Layout mode only allows structural reordering. Switch to Auto or use /content or /style.',
+          };
+          const hint = modeDescriptions[editMode] || `Active mode: ${editMode}. Switch to Auto mode to remove restrictions.`;
+          addMessage('ai', `⚠️ Blocked: ${err.message}\n\n${hint}`);
+        } else {
+          addErrorWithRetry(`Error: ${err.message}`, () => modifyWebsite(instruction, editMode));
+        }
         log('modify_error', { err: err.message });
       }
     });
@@ -3883,6 +3912,13 @@
       el.chatInput.value = '';
       el.chatInput.style.height = 'auto';
       if (!instruction) { addMessage('ai', `⚠️ Usage: /${editMode} <your instruction>`); return; }
+      // FE-6: Sync the mode pill to match the slash command
+      state.editMode = editMode;
+      if (el.editModeBar) {
+        el.editModeBar.querySelectorAll('.mode-btn').forEach(b => {
+          b.classList.toggle('active', (b.dataset.mode || null) === editMode);
+        });
+      }
       modifyWebsite(instruction, editMode);
       return;
     }
@@ -3939,7 +3975,8 @@
         break;
       case 'modify':
       default:
-        modifyWebsite(intent.instruction || text, null);
+        // FE-6: Apply the active mode pill so the UI selection is honoured
+        modifyWebsite(intent.instruction || text, state.editMode || null);
         break;
     }
   }
@@ -4052,11 +4089,28 @@
           pagesPayload['_chat'] = chatToSave
             .filter(m => (!m.text || !m.text.startsWith('Sign in to start')) && m.text !== '[attachment]')
             .map(m => ({ role: m.role, text: m.text, ts: m.ts }));
-          window.Auth.apiFetch(`${CONFIG.apiBaseUrl}/websites/${state.lastGenerationId}/`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ generated_code: code, pages_json: pagesPayload }),
-          }).catch(e => console.warn('[Nebulux] Server save failed:', e));
+          // DATA-3/FE-2: Retry the server PATCH up to 2 times with exponential
+          // backoff before giving up.  On permanent failure, show a non-blocking
+          // indicator so the user knows their work hasn't reached the server yet.
+          (async () => {
+            const body = JSON.stringify({ generated_code: code, pages_json: pagesPayload });
+            let lastErr;
+            for (let attempt = 0; attempt < 3; attempt++) {
+              if (attempt > 0) await new Promise(r => setTimeout(r, 1000 * attempt));
+              try {
+                const res = await window.Auth.apiFetch(
+                  `${CONFIG.apiBaseUrl}/websites/${state.lastGenerationId}/`,
+                  { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body }
+                );
+                if (res && res.ok !== false) return; // success
+                lastErr = new Error(`HTTP ${res.status}`);
+              } catch (e) { lastErr = e; }
+            }
+            // All retries failed — warn the user without blocking the UI
+            console.warn('[Nebulux] Server save failed after retries:', lastErr);
+            const bar = document.getElementById('serverSaveErrorBar');
+            if (bar) { bar.hidden = false; setTimeout(() => { bar.hidden = true; }, 7000); }
+          })();
         }
 
         log('project_saved', {
@@ -4604,6 +4658,23 @@ el.chatInput.addEventListener('keydown', e => {
 })();
 
 /* ============================================================
+   FE-6: EDIT MODE SWITCHER
+   Mode pill buttons above the chat input. Clicking a mode sets
+   state.editMode and applies it to the next modifyWebsite() call,
+   equivalent to prefixing the message with /content, /style, /layout.
+============================================================ */
+if (el.editModeBar) {
+  el.editModeBar.addEventListener('click', e => {
+    const btn = e.target.closest('.mode-btn');
+    if (!btn) return;
+    const mode = btn.dataset.mode || null;  // '' → null (Auto)
+    state.editMode = mode;
+    el.editModeBar.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  });
+}
+
+/* ============================================================
    QUICK CHIPS
 ============================================================ */
 $$('.qchip').forEach(chip => {
@@ -4903,9 +4974,9 @@ setInterval(() => {
 
 /* ============================================================
    UTILITY
+   Note: delay / escapeHtml / highlight* / prettify* / formatCodeWithLineNumbers /
+   extractCSS are imported from builder-utils.js at the top of this file (FE-1).
 ============================================================ */
-function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
-
 function getPrompt() {
   // Priority 1: URL param — always present when navigating from the index page.
   const p = new URLSearchParams(window.location.search).get('prompt');
@@ -4924,67 +4995,6 @@ function getPrompt() {
   } catch (e) { }
 
   return 'Create a beautiful modern website';
-}
-
-/* ============================================================
-   SYNTAX HIGHLIGHTING
-============================================================ */
-function escapeHtml(text) { const d = document.createElement('div'); d.textContent = text; return d.innerHTML; }
-
-function highlightHTML(code) {
-  let h = escapeHtml(code);
-  h = h.replace(/(&lt;!--[\s\S]*?--&gt;)/g, '\x01COMM\x02$1\x01/COMM\x02');
-  h = h.replace(/="([^"]*)"/g, '\x01STROPEN\x02"$1"\x01STRCLOSE\x02');
-  h = h.replace(/\s([\w-]+)(?==)/g, ' \x01ATTROPEN\x02$1\x01ATTRCLOSE\x02');
-  h = h.replace(/(&lt;\/?)([\w]+)/g, '$1\x01TAGOPEN\x02$2\x01TAGCLOSE\x02');
-  h = h.replace(/\/&gt;/g, '\x01TAGOPEN\x02/&gt;\x01TAGCLOSE\x02');
-  h = h.replace(/&gt;/g, '\x01TAGOPEN\x02&gt;\x01TAGCLOSE\x02');
-  return h
-    .replace(/\x01COMM\x02/g, '<span class="token-comment">').replace(/\x01\/COMM\x02/g, '</span>')
-    .replace(/\x01STROPEN\x02/g, '=<span class="token-string">').replace(/\x01STRCLOSE\x02/g, '</span>')
-    .replace(/\x01ATTROPEN\x02/g, '<span class="token-attr-name">').replace(/\x01ATTRCLOSE\x02/g, '</span>')
-    .replace(/\x01TAGOPEN\x02/g, '<span class="token-tag">').replace(/\x01TAGCLOSE\x02/g, '</span>');
-}
-
-function highlightCSS(code) {
-  let h = escapeHtml(code);
-  h = h.replace(/(\/\*[\s\S]*?\*\/)/g, '<span class="token-comment">$1</span>');
-  h = h.replace(/([a-z-]+):/gi, '<span class="token-property">$1</span>:');
-  h = h.replace(/:\s*([^;{]+)/g, ': <span class="token-string">$1</span>');
-  return h;
-}
-
-function prettifyHTML(html) {
-  let pretty = html.replace(/>\s*</g, '>\n<').replace(/>\s*([^<\s])/g, '>\n$1').replace(/([^>])\s*</g, '$1\n<');
-  let depth = 0;
-  const voidTags = /^(area|base|br|col|embed|hr|img|input|link|meta|param|source|track|wbr)$/i;
-  return pretty.split('\n').map(line => {
-    const t = line.trim();
-    if (!t) return '';
-    const isClose = /^<\//.test(t);
-    const isSelf = /\/>$/.test(t) || voidTags.test((t.match(/^<(\w+)/) || [])[1] || '');
-    if (isClose) depth = Math.max(0, depth - 1);
-    const out = '  '.repeat(depth) + t;
-    if (!isClose && !isSelf && /^<\w/.test(t)) depth++;
-    return out;
-  }).filter(Boolean).join('\n');
-}
-
-function prettifyCSS(css) {
-  return css
-    .replace(/\s*\{\s*/g, ' {\n  ').replace(/;\s*/g, ';\n  ')
-    .replace(/\s*\}\s*/g, '\n}\n').replace(/\n {2}(\s*\n)/g, '\n$1').trim();
-}
-
-function formatCodeWithLineNumbers(code, type = 'html') {
-  const pretty = type === 'css' ? prettifyCSS(code) : prettifyHTML(code);
-  const highlighted = (type === 'css' ? highlightCSS : highlightHTML)(pretty);
-  return highlighted.split('\n').filter(l => l.trim()).map(l => `<span class="code-line">${l}</span>`).join('');
-}
-
-function extractCSS(html) {
-  const m = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
-  return m ? m[1].trim() : '';
 }
 
 /* ============================================================
@@ -5948,6 +5958,165 @@ window._nebuluxGetPages = function () { return state.pages || []; };
       }
     } finally {
       unpublishBtn.textContent = 'Unpublish';
+    }
+  });
+
+  // Event delegation for publishFullBtn to ensure it works even if dynamically rendered
+  document.body.addEventListener('click', async (e) => {
+    const btn = e.target.closest('#publishFullBtn');
+    if (!btn || btn.disabled) return;
+    
+    const genId = window._nebuluxGetGenId?.();
+    console.log('[FullApp] Button clicked via delegation. Project ID:', genId);
+    
+    // Check if the site is already published or if a valid subdomain is entered
+    const subdomainInput = document.getElementById('publishSubdomainInput');
+    const subdomainStatus = document.getElementById('subdomainStatus');
+    const isAvailable = subdomainStatus && subdomainStatus.textContent.includes('Available');
+    const isPublished = document.getElementById('publishedState')?.style.display === 'block';
+    
+    // Only enforce subdomain check if the site isn't already published
+    if (!isPublished && (!subdomainInput?.value.trim() || !isAvailable)) {
+        alert('Please enter a valid, available subdomain for your site before generating the Full App Bundle.');
+        if (subdomainInput) subdomainInput.focus();
+        return;
+    }
+
+    const subdomain = isPublished ? _currentStatus?.subdomain : subdomainInput?.value.trim().toLowerCase();
+
+    const originalText = btn.innerHTML;
+    try {
+      btn.disabled = true;
+      btn.style.opacity = '0.7';
+      btn.innerHTML = 'Analyzing & Generating...';
+
+      const projectId = genId;
+      if (!projectId) throw new Error('No project ID found');
+
+      const fetcher = (window.Auth && typeof Auth.authFetch === 'function') 
+          ? Auth.authFetch.bind(Auth) 
+          : fetch;
+
+      // Read Supabase credentials
+      const supabaseUrl = document.getElementById('supabaseUrlInput')?.value.trim() || '';
+      const supabaseAnonKey = document.getElementById('supabaseAnonKeyInput')?.value.trim() || '';
+
+      // Validate — show inline status if missing (still allow bundle generation without backend)
+      const supabaseStatus = document.getElementById('supabaseConnectStatus');
+      if (!supabaseUrl || !supabaseAnonKey) {
+          if (supabaseStatus) {
+              supabaseStatus.textContent = '⚠ Enter your Supabase URL and anon key to enable backend.';
+              supabaseStatus.style.color = '#f59e0b';
+          }
+      } else {
+          if (supabaseStatus) {
+              supabaseStatus.textContent = '';
+          }
+      }
+
+      console.log('[FullApp] Requesting bundle for ID:', projectId, 'Subdomain:', subdomain);
+      const response = await fetcher(`/api/publish/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': (function() {
+              const name = 'csrftoken';
+              let cookieValue = null;
+              if (document.cookie && document.cookie !== '') {
+                  const cookies = document.cookie.split(';');
+                  for (let i = 0; i < cookies.length; i++) {
+                      const cookie = cookies[i].trim();
+                      if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                          cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                          break;
+                      }
+                  }
+              }
+              return cookieValue;
+          })(),
+        },
+        body: JSON.stringify({
+            nbx_id: projectId,
+            subdomain: subdomain,
+            supabase_url: supabaseUrl,
+            supabase_anon_key: supabaseAnonKey,
+        })
+      });
+
+      if (!response.ok) {
+          console.error('[FullApp] Response error:', response.status);
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.error || `Server error (${response.status})`);
+      }
+
+      const blob = await response.blob();
+      console.log('[FullApp] Received blob:', blob.size, 'bytes');
+      
+      const liveUrl = response.headers.get('X-Live-URL');
+      const deployError = response.headers.get('X-Deploy-Error');
+      
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const projectTitle = (document.getElementById('projectTitle')?.textContent || 'nebulux').trim().replace(/\s+/g, '_');
+      a.download = `${projectTitle}_full_app.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      
+      // Auto-publish the site after bundle generation
+      if (subdomain) {
+          try {
+              if (!isPublished) {
+                  const pubRes = await _apiFetch('/api/publishing/publish/', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ subdomain, generation_id: genId })
+                  });
+                  if (pubRes) {
+                      const siteUrl = `https://${subdomain}.nebulux.one`;
+                      _currentStatus = { is_published: true, subdomain, url: siteUrl, has_unpublished_changes: false };
+                      _showPublished(_currentStatus);
+                  }
+              }
+
+              const hasBackend = !!(supabaseUrl && supabaseAnonKey);
+              const liveSiteUrl = `https://${subdomain}.nebulux.one`;
+
+              if (hasBackend) {
+                  alert(`✅ Done!\n\nYour site is live at:\n${liveSiteUrl}\n\nYour Supabase backend is wired in.\nA backup ZIP has also been downloaded.`);
+              } else {
+                  alert(`✅ Done!\n\nYour site is live at:\n${liveSiteUrl}\n\nA backup ZIP has also been downloaded.\n\nTip: Add Supabase credentials to enable a real database.`);
+              }
+
+              btn.innerHTML = '✓ Live at ' + subdomain + '.nebulux.one';
+
+              if (typeof _loadStatus === 'function') _loadStatus();
+
+          } catch (pubErr) {
+              console.error('[FullApp] Auto-publish failed:', pubErr);
+              const liveSiteUrl = `https://${subdomain}.nebulux.one`;
+              alert(`Bundle downloaded!\n\nTo make your site live, click "Publish site" above.\nYour URL will be: ${liveSiteUrl}`);
+              btn.innerHTML = 'Bundle Downloaded';
+          }
+      } else {
+          btn.innerHTML = 'Bundle Ready!';
+          alert('Bundle downloaded! Enter a subdomain above and click "Publish site" to go live.');
+      }
+
+      setTimeout(() => {
+          btn.innerHTML = originalText;
+          btn.disabled = false;
+          btn.style.opacity = '';
+      }, 4000);
+      
+    } catch (err) {
+      console.error('[FullApp] Click handler failed:', err);
+      alert(`Error: ${err.message}`);
+      btn.disabled = false;
+      btn.style.opacity = '';
+      btn.innerHTML = originalText;
     }
   });
 

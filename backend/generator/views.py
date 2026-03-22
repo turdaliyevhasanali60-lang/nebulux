@@ -13,6 +13,7 @@ from __future__ import annotations  # FIX: enables str|None union syntax on Pyth
 
 import json
 import logging
+from django.core.cache import cache
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.decorators import parser_classes
 from rest_framework.parsers import MultiPartParser, FormParser
@@ -27,7 +28,7 @@ from rest_framework.decorators import api_view, throttle_classes, permission_cla
 from rest_framework.permissions import IsAdminUser, IsAuthenticated, AllowAny
 from rest_framework.response import Response
 
-from .models import APIUsageLog, WebsiteGeneration
+from .models import APIUsageLog, GenerationPage, WebsiteGeneration, WebsiteSnapshot
 from .serializers import (
     APIUsageStatsSerializer,
     CompleteSpecRequestSerializer,
@@ -43,9 +44,16 @@ from .services.ai_service import (
     edit_website_stream, extract_spec, generate_website, generate_website_stream,
     validate_api_key,
 )
+from .services.full_app_service import (
+    extract_backend_contract, generate_hono_worker, inject_supabase_client,
+    create_full_app_zip,
+)
 from .throttling import GenerateFreeThrottle, SpecThrottle
-from .tasks import generate_preview
-from .utils import get_client_ip, paginate_queryset
+from .tasks import generate_preview, process_inline_images
+from .utils import get_client_ip, inline_images_to_r2, paginate_queryset
+
+# Backward-compat alias so any call sites we haven't updated yet still work
+_inline_images_to_r2 = inline_images_to_r2
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +62,11 @@ logger = logging.getLogger(__name__)
 #  1 TU = 1,000 API tokens.  We reserve 50 TU upfront (≈ worst-case
 #  cost) and reconcile to the actual usage once the call completes.
 # ─────────────────────────────────────────────────────────────────
-TU_RESERVATION = 50   # credits reserved before each generation
+# BE-1: Per-endpoint reservations tuned to actual operation cost.
+# 1 TU = 1,000 tokens.  We reserve upfront and reconcile to actual usage.
+TU_RESERVATION_GENERATE = 50   # full generation: 20–40 TU typical
+TU_RESERVATION_EDIT     = 10   # single-page edit:  5–8 TU typical
+TU_RESERVATION = TU_RESERVATION_GENERATE  # legacy alias — do not use in new code
 
 def _tokens_to_tu(tokens: int) -> int:
     """Convert raw token count → TU, rounding up, minimum 1."""
@@ -113,7 +125,7 @@ def _extract_files(request_data) -> list:
         if not data or not isinstance(data, str):
             continue
 
-        # Validate MIME type
+        # Validate claimed MIME type against allowlist
         if mime and mime not in _ALLOWED_MIMES:
             logger.warning("Skipping file with disallowed MIME: %s (%s)", name, mime)
             continue
@@ -123,105 +135,47 @@ def _extract_files(request_data) -> list:
             logger.warning("Skipping oversized file: %s (%d bytes)", name, len(data))
             continue
 
+        # SEC-3: Server-side magic-byte validation — the client-supplied MIME
+        # type is user-controlled and cannot be trusted.  Decode the first
+        # 2 KB of the file and let libmagic identify the real type.
+        try:
+            import base64 as _b64
+            import magic as _magic
+            raw_head = _b64.b64decode(data[:2732])  # ~2 KB of base64
+            detected = _magic.from_buffer(raw_head, mime=True)
+            # Allow text/* wildcard match for text-family types
+            def _mime_ok(detected_mime: str, claimed: str) -> bool:
+                if detected_mime == claimed:
+                    return True
+                if detected_mime.startswith("text/") and claimed.startswith("text/"):
+                    return True
+                # PDFs sometimes detected as application/octet-stream on short reads
+                if claimed == "application/pdf" and detected_mime in (
+                    "application/pdf", "application/octet-stream"
+                ):
+                    return True
+                return False
+            if not _mime_ok(detected, mime or "application/octet-stream"):
+                logger.warning(
+                    "SEC-3: MIME mismatch for %s — claimed %s, detected %s. Skipping.",
+                    name, mime, detected,
+                )
+                continue
+        except ImportError:
+            pass   # python-magic not installed — skip server-side check
+        except Exception as _magic_err:
+            logger.debug("SEC-3: magic check failed for %s: %s", name, _magic_err)
+
         validated.append({"name": name, "type": mime, "data": data})
 
     return validated
 
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  Base64 → R2 extractor
-#  Scans HTML for data: image URIs, uploads each to R2 as WebP, replaces inline.
-# ─────────────────────────────────────────────────────────────────────────────
-def _inline_images_to_r2(html: str) -> str:
-    """
-    Find every src="data:image/..." in html, convert to WebP, upload to R2,
-    return html with permanent URLs.  Falls back silently on any error.
-    """
-    import re, io, uuid, base64
-    from django.conf import settings as _s
-
-    if not getattr(_s, '_R2_CONFIGURED', False) or not getattr(_s, 'R2_PUBLIC_URL', ''):
-        return html  # R2 not configured — leave as-is
-
-    # Match both quoted and unquoted data URIs inside src= attributes
-    pattern = re.compile(
-        r'src=(?:["\'])??(data:image/([a-zA-Z+]+);base64,([A-Za-z0-9+/=]+))(?:["\'])??',
-        re.IGNORECASE,
-    )
-
-    matches = list(pattern.finditer(html))
-    if not matches:
-        return html
-
-    try:
-        import boto3
-        from botocore.config import Config as BotoConfig
-        from PIL import Image as PilImage
-
-        s3 = boto3.client(
-            "s3",
-            endpoint_url=_s.AWS_S3_ENDPOINT_URL,
-            aws_access_key_id=_s.AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=_s.AWS_SECRET_ACCESS_KEY,
-            config=BotoConfig(signature_version="s3v4"),
-            region_name="auto",
-        )
-    except Exception as exc:
-        logger.warning("_inline_images_to_r2: could not init S3 client: %s", exc)
-        return html
-
-    replacements = {}
-    for match in matches:
-        full_src = match.group(1)   # data:image/png;base64,...
-        img_format = match.group(2) # png / jpeg / webp / gif / svg+xml
-        b64_data   = match.group(3)
-
-        if full_src in replacements:
-            continue  # already processed this exact data URI
-
-        # Skip SVG — not worth converting, and PIL can't handle it
-        if 'svg' in img_format.lower():
-            continue
-
-        try:
-            raw = base64.b64decode(b64_data)
-            img = PilImage.open(io.BytesIO(raw))
-
-            if img.mode in ("RGBA", "LA", "P"):
-                img = img.convert("RGBA")
-            else:
-                img = img.convert("RGB")
-
-            # Cap to 2000px
-            MAX_DIM = 2000
-            if max(img.width, img.height) > MAX_DIM:
-                img.thumbnail((MAX_DIM, MAX_DIM), PilImage.LANCZOS)
-
-            buf = io.BytesIO()
-            img.save(buf, format="WEBP", quality=82, method=4)
-            buf.seek(0)
-
-            key = f"generated/{uuid.uuid4().hex}.webp"
-            s3.put_object(
-                Bucket=_s.R2_BUCKET_NAME,
-                Key=key,
-                Body=buf.read(),
-                ContentType="image/webp",
-            )
-            public_url = _s.R2_PUBLIC_URL.rstrip("/") + "/" + key
-            replacements[full_src] = public_url
-            logger.info("_inline_images_to_r2: uploaded %s → %s", key, public_url)
-
-        except Exception as exc:
-            logger.warning("_inline_images_to_r2: skipping image (%s): %s", img_format, exc)
-            continue
-
-    for old_src, new_url in replacements.items():
-        html = html.replace(old_src, new_url)
-
-    logger.info("_inline_images_to_r2: replaced %d base64 image(s)", len(replacements))
-    return html
+# DATA-4: _inline_images_to_r2 has been moved to utils.py and is imported
+# above as `inline_images_to_r2` (alias `_inline_images_to_r2` for compat).
+# Streaming paths now save raw HTML immediately and enqueue process_inline_images
+# as a Celery task so base64 → R2 conversion never blocks the HTTP response.
 
 # ─────────────────────────────────────────────────────────────────
 #  Step 1 — Spec extraction
@@ -339,8 +293,9 @@ def generate_website_view(request):
             logger.info("generate_website_view: single_page=%r, request_data_keys=%r", single_page, list(request.data.keys()))
             for item in generate_website_stream(spec, original_prompt=prompt, files=files, single_page=single_page, model_override=_model_override):
                 if item.get("done"):
-                    # Stream finished — save to DB and send final chunk with id
-                    html_code   = _inline_images_to_r2(item["full_code"])
+                    # DATA-4: Save raw HTML immediately — base64→R2 conversion
+                    # is deferred to a Celery task so it never blocks the stream.
+                    html_code   = item["full_code"]
                     tokens_used = item["tokens_used"]
                     pages_data  = item.get("pages") or {}
                     nav_data    = item.get("navigation") or {}
@@ -350,7 +305,10 @@ def generate_website_view(request):
                         prompt=prompt,
                         spec_json=spec,
                         generated_code=html_code,
-                        pages_json=pages_data,
+                        # DATA-5: pages stored in GenerationPage rows below;
+                        # keep pages_json empty for new records to avoid
+                        # duplicating large HTML blobs in the parent row.
+                        pages_json={},
                         title=(
                             spec.get("site_name")
                             or spec.get("title")
@@ -361,8 +319,49 @@ def generate_website_view(request):
                         ip_address=ip,
                     )
 
-                    # Enqueue thumbnail generation — runs in background, never blocks stream
-                    generate_preview.delay(generation.id)
+                    # DATA-5: Persist each page as an individual GenerationPage row.
+                    if pages_data:
+                        try:
+                            GenerationPage.objects.bulk_create([
+                                GenerationPage(
+                                    generation=generation,
+                                    slug=slug,
+                                    html=html,
+                                )
+                                for slug, html in pages_data.items()
+                            ], ignore_conflicts=True)
+                        except Exception as _page_err:
+                            logger.warning(
+                                "generate_website_view: failed to persist GenerationPage "
+                                "rows for generation %s: %s", generation.id, _page_err
+                            )
+
+                    # DATA-2: Save initial snapshot so the first version is always
+                    # available for restore, even before the user makes any edits.
+                    try:
+                        WebsiteSnapshot.create_for(generation, label="Generated")
+                    except Exception as _snap_err:
+                        logger.warning("Snapshot creation failed after generate: %s", _snap_err)
+
+                    # Enqueue thumbnail generation — runs in background, never blocks stream.
+                    # BE-2: Guard against Celery/Redis not being available so a
+                    # missing worker doesn't crash an otherwise successful generation.
+                    try:
+                        generate_preview.delay(generation.id)
+                    except Exception as _celery_err:
+                        logger.warning(
+                            "generate_website_view: preview task could not be "
+                            "enqueued (Celery unavailable?): %s", _celery_err
+                        )
+
+                    # DATA-4: Convert inline base64 images to R2 URLs asynchronously.
+                    try:
+                        process_inline_images.delay(generation.id)
+                    except Exception as _img_err:
+                        logger.warning(
+                            "generate_website_view: process_inline_images task could not be "
+                            "enqueued: %s", _img_err
+                        )
 
                     # Reconcile: refund or charge difference vs reservation
                     _reconcile_credits(user, TU_RESERVATION, tokens_used)
@@ -431,7 +430,7 @@ def modify_website_view(request):
     user  = request.user
     files = _extract_files(request.data)
 
-    if not user.deduct_credit(TU_RESERVATION):
+    if not user.deduct_credit(TU_RESERVATION_EDIT):
         return Response(
             {
                 "error": "Insufficient credits. Please purchase more credits or upgrade your plan.",
@@ -444,10 +443,30 @@ def modify_website_view(request):
     edit_mode    = request.data.get("edit_mode")    or None
     scope        = request.data.get("scope")        or None
     chat_history = request.data.get("chat_history") or []
+    # AI-3: Cap to last 10 turns (5 user + 5 assistant) to prevent context
+    # overflow and runaway token consumption on long-lived chat sessions.
+    if len(chat_history) > 10:
+        chat_history = chat_history[-10:]
+
+    # BE-4: Per-generation advisory lock — prevents concurrent edits on the
+    # same project from racing each other and double-charging credits.
+    # Uses Django's cache.add() which is atomic across threads and processes.
+    _lock_key = f"gen_edit_lock_{user.pk}_{nbx_id}" if nbx_id else None
+    if _lock_key:
+        acquired = cache.add(_lock_key, "1", timeout=300)
+        if not acquired:
+            # Refund the reservation we already deducted
+            type(user).objects.filter(pk=user.pk).update(
+                credits=F("credits") + TU_RESERVATION_EDIT
+            )
+            return Response(
+                {"error": "Another edit is already in progress for this project. Please wait."},
+                status=status.HTTP_409_CONFLICT,
+            )
 
     ip = get_client_ip(request)
-    # Plan-based model switching: free → Gemini Flash, paid → Kimi K2.5
-    _edit_model_override = "gemini-2.5-flash" if user.plan == "free" else "kimi-k2.5"
+    # Plan-based model switching: free → Gemini Flash, paid → Claude Sonnet
+    _edit_model_override = "gemini-2.5-flash" if user.plan == "free" else "claude-sonnet-4-6"
 
     def _stream_edit():
         try:
@@ -461,33 +480,67 @@ def modify_website_view(request):
                 model_override=_edit_model_override,
             ):
                 if item.get("done"):
-                    html_code = _inline_images_to_r2(item["full_code"])
-                    # Emergency fallback if _inline_images_to_r2 returned an empty string
-                    if not (html_code or "").strip():
-                        logger.warning("modify_website_view: html_code is empty after R2 processing. Fallback to original.")
-                        html_code = code
-
+                    # DATA-4: Use raw HTML — base64→R2 deferred to Celery task below.
+                    html_code = item["full_code"] or code
                     tokens_used = item["tokens_used"]
-                    _reconcile_credits(user, TU_RESERVATION, tokens_used)
+                    _reconcile_credits(user, TU_RESERVATION_EDIT, tokens_used)
                     _log(ip, "modify_website", tokens_used, True, None, request)
+
+                    # DATA-1 + DATA-2: Auto-persist the edited HTML to the DB and
+                    # save a snapshot so the change is recoverable.
+                    if nbx_id:
+                        try:
+                            gen_obj = WebsiteGeneration.objects.filter(
+                                id=nbx_id, user=user
+                            ).first()
+                            if gen_obj:
+                                try:
+                                    WebsiteSnapshot.create_for(gen_obj, label="Edit")
+                                except Exception as _snap_err:
+                                    logger.warning(
+                                        "modify_website_view: snapshot failed for "
+                                        "generation %s: %s", nbx_id, _snap_err
+                                    )
+                                gen_obj.generated_code = html_code
+                                gen_obj.save(update_fields=["generated_code"])
+                                # DATA-4: Enqueue image processing async
+                                try:
+                                    process_inline_images.delay(gen_obj.id)
+                                except Exception as _img_err:
+                                    logger.warning(
+                                        "modify_website_view: process_inline_images "
+                                        "could not be enqueued: %s", _img_err
+                                    )
+                        except Exception as _save_err:
+                            logger.warning(
+                                "modify_website_view: failed to auto-persist "
+                                "generation %s: %s", nbx_id, _save_err
+                            )
+
                     # Send both 'code' and 'full_code' to satisfy all frontend variations
                     yield json.dumps({
-                        "done": True, 
-                        "code": html_code, 
-                        "full_code": html_code, 
+                        "done": True,
+                        "code": html_code,
+                        "full_code": html_code,
                         "tokens_used": tokens_used
                     }) + "\n"
                 else:
                     yield json.dumps(item) + "\n"
         except AIServiceError as exc:
-            type(user).objects.filter(pk=user.pk).update(credits=F("credits") + TU_RESERVATION)
+            type(user).objects.filter(pk=user.pk).update(credits=F("credits") + TU_RESERVATION_EDIT)
             _log(ip, "modify_website", 0, False, str(exc), request)
             yield json.dumps({"error": str(exc)}) + "\n"
         except Exception as exc:
-            type(user).objects.filter(pk=user.pk).update(credits=F("credits") + TU_RESERVATION)
+            type(user).objects.filter(pk=user.pk).update(credits=F("credits") + TU_RESERVATION_EDIT)
             logger.exception("Unexpected error in modify_website_view stream")
             _log(ip, "modify_website", 0, False, str(exc), request)
             yield json.dumps({"error": "Internal error during modification."}) + "\n"
+        finally:
+            # BE-4: Release the per-generation advisory lock so subsequent edits
+            # can proceed.  The finally block runs whether the stream succeeded,
+            # raised, or was aborted by the client.
+            if _lock_key:
+                cache.delete(_lock_key)
 
     response = StreamingHttpResponse(_stream_edit(), content_type="application/x-ndjson")
     response["X-Accel-Buffering"] = "no"
@@ -508,7 +561,7 @@ PAGE_SIZE_MAX     = 32   # safety cap — prevents abuse
 def list_generations(request):
     qs = (
         WebsiteGeneration.objects
-        .filter(user=request.user)
+        .filter(user=request.user, is_deleted=False)
         .only('id', 'prompt', 'tokens_used', 'created_at', 'preview_image')
         .order_by('-created_at')
     )
@@ -527,7 +580,9 @@ def list_generations(request):
 @permission_classes([IsAuthenticated])
 def get_generation(request, generation_id):
     try:
-        generation = WebsiteGeneration.objects.get(id=generation_id, user=request.user)
+        generation = WebsiteGeneration.objects.get(
+            id=generation_id, user=request.user, is_deleted=False
+        )
     except WebsiteGeneration.DoesNotExist:
         return Response({"error": "Not found."}, status=status.HTTP_404_NOT_FOUND)
 
@@ -539,19 +594,35 @@ def get_generation(request, generation_id):
             update_fields.append("title")
         code = request.data.get("generated_code")
         if code:
-            generation.generated_code = _inline_images_to_r2(code)
+            # DATA-2: Snapshot the current state before overwriting so the
+            # previous version is always recoverable via the history endpoint.
+            if generation.generated_code:
+                try:
+                    WebsiteSnapshot.create_for(generation, label="Saved")
+                except Exception as _snap_err:
+                    logger.warning("Snapshot before PATCH failed: %s", _snap_err)
+            # DATA-4: Save raw HTML now; enqueue R2 conversion async below.
+            generation.generated_code = code
             update_fields.append("generated_code")
         pages = request.data.get("pages_json")
-        if pages is not None:
-            # Strip base64 images from each page's code inside pages_json
-            if isinstance(pages, dict):
-                for slug, entry in pages.items():
-                    if isinstance(entry, dict) and entry.get("code"):
-                        entry["code"] = _inline_images_to_r2(entry["code"])
-            generation.pages_json = pages
+        if pages is not None and isinstance(pages, dict):
+            # DATA-5: upsert into GenerationPage; keep pages_json in sync for
+            # old callers that read it directly from the model.
+            for slug, html in pages.items():
+                GenerationPage.objects.update_or_create(
+                    generation=generation,
+                    slug=slug,
+                    defaults={"html": html},
+                )
+            generation.pages_json = {}  # clear legacy field — data lives in GenerationPage now
             update_fields.append("pages_json")
         if update_fields:
             generation.save(update_fields=update_fields)
+            # DATA-4: Enqueue image processing for any inline base64 images.
+            try:
+                process_inline_images.delay(generation.id)
+            except Exception as _img_err:
+                logger.warning("PATCH: process_inline_images could not be enqueued: %s", _img_err)
             # Flag published site as having unpublished changes
             try:
                 from publishing.models import PublishedSite
@@ -562,18 +633,87 @@ def get_generation(request, generation_id):
                 pass
         return Response({"id": generation.id, "title": generation.title})
 
-    return Response(GenerationDetailSerializer(generation).data)
+    # DATA-5: Load pages from GenerationPage rows; fall back to pages_json for
+    # old records that were created before the GenerationPage table existed.
+    db_pages = {p.slug: p.html for p in GenerationPage.objects.filter(generation=generation)}
+    pages_ctx = db_pages if db_pages else (generation.pages_json or {})
+    return Response(GenerationDetailSerializer(generation, context={'db_pages': pages_ctx}).data)
 
 
 @api_view(["DELETE"])
 @permission_classes([IsAuthenticated])
 def delete_generation(request, generation_id):
     try:
-        generation = WebsiteGeneration.objects.get(id=generation_id, user=request.user)
+        generation = WebsiteGeneration.objects.get(
+            id=generation_id, user=request.user, is_deleted=False
+        )
     except WebsiteGeneration.DoesNotExist:
         return Response({"error": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-    generation.delete()
+    # BE-5: Soft delete — set is_deleted flag rather than removing the row.
+    # This is irreversible from the user's perspective but preserves data for recovery.
+    generation.is_deleted = True
+    generation.deleted_at = timezone.now()
+    generation.save(update_fields=["is_deleted", "deleted_at"])
     return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# ─────────────────────────────────────────────────────────────────
+#  DATA-2: Version History — snapshot list + restore
+# ─────────────────────────────────────────────────────────────────
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def list_snapshots(request, generation_id):
+    """Return the last 10 snapshots for a generation (newest first)."""
+    try:
+        generation = WebsiteGeneration.objects.get(
+            id=generation_id, user=request.user, is_deleted=False
+        )
+    except WebsiteGeneration.DoesNotExist:
+        return Response({"error": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    snapshots = WebsiteSnapshot.objects.filter(
+        generation=generation
+    ).order_by("-created_at")[:WebsiteSnapshot.MAX_SNAPSHOTS]
+
+    return Response([
+        {
+            "id":         s.id,
+            "label":      s.label,
+            "created_at": s.created_at,
+            "preview":    s.code[:200],  # first 200 chars for display
+        }
+        for s in snapshots
+    ])
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def restore_snapshot(request, generation_id, snapshot_id):
+    """Restore a generation's generated_code from a snapshot."""
+    try:
+        generation = WebsiteGeneration.objects.get(
+            id=generation_id, user=request.user, is_deleted=False
+        )
+    except WebsiteGeneration.DoesNotExist:
+        return Response({"error": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    try:
+        snapshot = WebsiteSnapshot.objects.get(id=snapshot_id, generation=generation)
+    except WebsiteSnapshot.DoesNotExist:
+        return Response({"error": "Snapshot not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    # Snapshot the current state before restoring so the restore itself is undoable
+    if generation.generated_code:
+        try:
+            WebsiteSnapshot.create_for(generation, label="Before restore")
+        except Exception as _snap_err:
+            logger.warning("Pre-restore snapshot failed: %s", _snap_err)
+
+    generation.generated_code = snapshot.code
+    generation.save(update_fields=["generated_code"])
+
+    return Response({"id": generation.id, "restored_from": snapshot_id})
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -804,3 +944,81 @@ def pexels_image(request):
 
     from django.shortcuts import redirect
     return redirect(img_url)
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def publish_full_app_view(request):
+    """
+    PUBLISH MODE 2: FULL APP
+    Analyzes existing frontend code, generates a Hono/D1 backend, 
+    patches the frontend, and returns a deployable ZIP bundle.
+    """
+    nbx_id = request.data.get("nbx_id")
+    subdomain_input = request.data.get("subdomain")
+    
+    if not nbx_id:
+        return Response({"error": "nbx_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+    if not subdomain_input:
+        return Response({"error": "subdomain is required. Please choose a subdomain first."}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        # 1. Fetch the project
+        gen = WebsiteGeneration.objects.get(id=nbx_id, user=request.user)
+        pages_raw = gen.pages_json or {"index": gen.generated_code}
+        
+        # Normalize pages_raw to Dict[str, str]
+        pages = {}
+        if isinstance(pages_raw, list):
+            for i, p in enumerate(pages_raw):
+                name = p.get("name", f"page_{i}")
+                pages[name] = p.get("code", "")
+        elif isinstance(pages_raw, dict):
+            for k, v in pages_raw.items():
+                if isinstance(v, dict):
+                    pages[k] = v.get("code", "")
+                else:
+                    pages[k] = str(v)
+        
+        # 2. Extract Backend Contract
+        contract = extract_backend_contract(pages)
+        if "error" in contract:
+             return Response({"error": f"Analysis failed: {contract['error']}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # 3. Generate Hono Backend Code
+        backend_files = generate_hono_worker(contract)
+
+        # 4. Read user-provided Supabase credentials (optional)
+        supabase_url = request.data.get("supabase_url", "").strip()
+        supabase_anon_key = request.data.get("supabase_anon_key", "").strip()
+
+        has_supabase = bool(supabase_url and supabase_anon_key)
+
+        deploy_res = {
+            "api_url": supabase_url if has_supabase else None,
+            "anon_key": supabase_anon_key if has_supabase else None,
+            "error": None,
+        }
+
+        # 5. Inject Supabase client into frontend pages (only if credentials provided)
+        if has_supabase:
+            patched_pages = inject_supabase_client(pages, deploy_res["api_url"], deploy_res["anon_key"], contract)
+        else:
+            patched_pages = pages
+
+        # 6. Create ZIP Bundle
+        if has_supabase:
+            zip_buffer = create_full_app_zip(patched_pages, deploy_res["api_url"], deploy_res["anon_key"])
+        else:
+            zip_buffer = create_full_app_zip(patched_pages, "", "")
+
+        from django.http import HttpResponse
+        response = HttpResponse(zip_buffer.getvalue(), content_type='application/zip')
+        response['Content-Disposition'] = f'attachment; filename="{subdomain_input}_full_app.zip"'
+        response['Access-Control-Expose-Headers'] = 'Content-Disposition'
+
+        return response
+
+    except WebsiteGeneration.DoesNotExist:
+        return Response({"error": "Project not found"}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        logger.exception("Publish Full App failed")
+        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

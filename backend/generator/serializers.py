@@ -11,7 +11,7 @@ Validation rules enforced here:
 from django.conf import settings
 from rest_framework import serializers
 
-from .models import WebsiteGeneration, APIUsageLog
+from .models import WebsiteGeneration, APIUsageLog, GenerationPage
 
 # Required spec fields — the AI must provide these or list them in missing_fields
 _REQUIRED_SPEC_FIELDS = {'site_type', 'sections'}
@@ -127,9 +127,18 @@ class GenerationDetailSerializer(serializers.ModelSerializer):
     pages        = serializers.SerializerMethodField()
 
     def get_is_multipage(self, obj):
+        # DATA-5: prefer GenerationPage rows; fall back to pages_json for old records
+        ctx_pages = self.context.get('db_pages')
+        if ctx_pages is not None:
+            return bool(ctx_pages)
         return bool(obj.pages_json)
 
     def get_pages(self, obj):
+        # DATA-5: if the view prefetched GenerationPage rows into context, use them;
+        # otherwise fall back to the legacy pages_json JSONField (old records).
+        ctx_pages = self.context.get('db_pages')
+        if ctx_pages is not None:
+            return ctx_pages
         return obj.pages_json or {}
 
     class Meta:

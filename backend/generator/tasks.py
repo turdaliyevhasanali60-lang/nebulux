@@ -138,3 +138,37 @@ def generate_preview(self, generation_id: int) -> None:
     except Exception as exc:
         logger.exception('[preview] Storage error for generation %d: %s', generation_id, exc)
         raise self.retry(exc=exc)
+
+
+@shared_task(bind=True, max_retries=2, default_retry_delay=10, ignore_result=True)
+def process_inline_images(self, generation_id: int) -> None:
+    """
+    DATA-4: Convert inline base64 images in a generation's HTML to WebP files
+    stored in Cloudflare R2.  Runs asynchronously after the HTTP response has
+    already been sent to the client so the streaming generation is not blocked.
+
+    Retries up to 2 times on transient errors (S3 timeouts, etc.).
+    """
+    from .models import WebsiteGeneration
+    from .utils import inline_images_to_r2
+
+    try:
+        gen = WebsiteGeneration.objects.get(pk=generation_id)
+    except WebsiteGeneration.DoesNotExist:
+        logger.warning('[images] Generation %d not found — skipping', generation_id)
+        return
+
+    if not gen.generated_code:
+        return
+
+    try:
+        updated_html = inline_images_to_r2(gen.generated_code)
+        if updated_html != gen.generated_code:
+            gen.generated_code = updated_html
+            gen.save(update_fields=['generated_code'])
+            logger.info('[images] Inline images processed for generation %d', generation_id)
+        else:
+            logger.debug('[images] No inline images found for generation %d', generation_id)
+    except Exception as exc:
+        logger.exception('[images] Processing failed for generation %d', generation_id)
+        raise self.retry(exc=exc)

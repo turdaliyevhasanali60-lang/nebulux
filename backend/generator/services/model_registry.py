@@ -349,17 +349,36 @@ MODEL_REGISTRY: Dict[str, ModelConfig] = {
 # ──────────────────────────────────────────────────────────────────────────────
 #  Task → model mapping  (reads from settings.AI_MODELS)
 # ──────────────────────────────────────────────────────────────────────────────
+
+# ARCH-4: Primary task map uses Anthropic models — better SLA and reliability
+# than Kimi K2.5 (Moonshot AI).  Kimi/DeepSeek/Groq remain available as
+# explicit model_override values for users who want them.
 _DEFAULT_TASK_MAP = {
-    "spec":     "claude-haiku-3.5",
-    "generate": "kimi-k2.5",
-    "edit":     "kimi-k2.5",
-    "fast_edit": "claude-haiku-3.5",
+    "spec":      "claude-haiku-3.5",    # cheap + fast spec extraction
+    "generate":  "claude-sonnet-4-6",   # high-quality full-page generation
+    "edit":      "claude-sonnet-4-6",   # edits need the same quality bar
+    "fast_edit": "claude-haiku-3.5",    # element-level tweaks, latency matters
+}
+
+# ARCH-4: Fallback model per task — used when the primary provider returns
+# a rate-limit (429) or server error (5xx).  Must be a different provider
+# from the primary so a provider outage doesn't affect both slots.
+_FALLBACK_TASK_MAP = {
+    "spec":      "gemini-2.5-flash",
+    "generate":  "gemini-2.5-flash",
+    "edit":      "gemini-2.5-flash",
+    "fast_edit": "gemini-2.5-flash",
 }
 
 
 def _get_task_map() -> Dict[str, str]:
     """Return the task→model-slug mapping from settings, with defaults."""
     return getattr(settings, "AI_MODELS", _DEFAULT_TASK_MAP)
+
+
+def _get_fallback_map() -> Dict[str, str]:
+    """Return the fallback task→model-slug mapping from settings, with defaults."""
+    return getattr(settings, "AI_FALLBACK_MODELS", _FALLBACK_TASK_MAP)
 
 
 def get_model_config(task: str) -> ModelConfig:
@@ -384,6 +403,19 @@ def get_model_config(task: str) -> ModelConfig:
         )
 
     return config
+
+
+def get_fallback_model_config(task: str) -> ModelConfig | None:
+    """
+    Return the fallback ModelConfig for a task, or None if none is configured.
+    Used by the AI service layer to retry with a different provider when the
+    primary call fails with a rate-limit or server error.
+    """
+    fallback_map = _get_fallback_map()
+    slug = fallback_map.get(task)
+    if not slug:
+        return None
+    return MODEL_REGISTRY.get(slug)
 
 
 def get_active_models() -> Dict[str, ModelConfig]:

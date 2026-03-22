@@ -371,6 +371,12 @@ STATIC_ROOT      = BASE_DIR.parent / "staticfiles"
 _frontend_static = FRONTEND_DIR / "static"
 STATICFILES_DIRS = [_frontend_static] if _frontend_static.exists() else []
 
+# ARCH-3: Explicit path to builder.css for reliable design token injection.
+# The AI service reads CSS custom properties from this file and injects them
+# into generation prompts.  Without this, token injection silently fails in
+# Docker / gunicorn deployments where the working directory is unpredictable.
+BUILDER_CSS_PATH = _frontend_static / "css" / "builder.css"
+
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
 MEDIA_URL  = "/media/"

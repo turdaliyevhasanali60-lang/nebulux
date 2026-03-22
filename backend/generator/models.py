@@ -69,6 +69,10 @@ class WebsiteGeneration(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
+    # ── Soft delete — never physically remove rows; filter is_deleted=False
+    is_deleted = models.BooleanField(default=False, db_index=True)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+
     class Meta:
         ordering = ["-created_at"]
         verbose_name        = "Website Generation"
@@ -82,6 +86,90 @@ class WebsiteGeneration(models.Model):
     def __str__(self):
         owner = self.user.email if self.user else self.ip_address
         return f"Generation #{self.id} [{owner}] — {self.prompt[:60]}…"
+
+
+class WebsiteSnapshot(models.Model):
+    """
+    DATA-2: Immutable point-in-time snapshot of a WebsiteGeneration's HTML.
+
+    Created automatically whenever generated_code is saved (via generate or
+    modify).  At most MAX_SNAPSHOTS are kept per generation; the oldest are
+    deleted when the cap is exceeded.  Provides a lightweight undo history
+    that persists across page refreshes and devices.
+    """
+    MAX_SNAPSHOTS = 10
+
+    generation = models.ForeignKey(
+        WebsiteGeneration,
+        on_delete=models.CASCADE,
+        related_name="snapshots",
+        db_index=True,
+    )
+    code = models.TextField(help_text="Full HTML at the time of the snapshot")
+    label = models.CharField(
+        max_length=100, blank=True, default="",
+        help_text="Human-readable label, e.g. 'Generated' or 'Edit #3'",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["generation", "-created_at"])]
+
+    def __str__(self):
+        return f"Snapshot #{self.id} for Generation #{self.generation_id} @ {self.created_at:%Y-%m-%d %H:%M}"
+
+    @classmethod
+    def create_for(cls, generation: "WebsiteGeneration", label: str = "") -> "WebsiteSnapshot":
+        """
+        Save a snapshot and enforce the MAX_SNAPSHOTS cap atomically.
+        Call this before overwriting generated_code.
+        """
+        snap = cls.objects.create(
+            generation=generation,
+            code=generation.generated_code,
+            label=label,
+        )
+        # Prune oldest snapshots beyond the cap
+        excess_ids = list(
+            cls.objects.filter(generation=generation)
+            .order_by("-created_at")
+            .values_list("id", flat=True)[cls.MAX_SNAPSHOTS:]
+        )
+        if excess_ids:
+            cls.objects.filter(id__in=excess_ids).delete()
+        return snap
+
+
+class GenerationPage(models.Model):
+    """
+    DATA-5: One row per page of a multi-page website generation.
+
+    Replaces the pages_json JSONField (which stuffed all page HTML into a
+    single Postgres row) with proper relational storage.  Each page is its
+    own row, so list_generations can defer page HTML entirely and
+    get_generation can prefetch only what it needs.
+
+    Backward compat: old records still have pages_json populated.
+    New records write here; get_generation falls back to pages_json when
+    no GenerationPage rows exist.
+    """
+    generation = models.ForeignKey(
+        WebsiteGeneration,
+        on_delete=models.CASCADE,
+        related_name="pages",
+        db_index=True,
+    )
+    slug = models.CharField(max_length=100, help_text="URL slug, e.g. 'index', 'about'")
+    html = models.TextField(help_text="Full page HTML")
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = [("generation", "slug")]
+        ordering = ["slug"]
+
+    def __str__(self):
+        return f"Page '{self.slug}' for Generation #{self.generation_id}"
 
 
 class APIUsageLog(models.Model):

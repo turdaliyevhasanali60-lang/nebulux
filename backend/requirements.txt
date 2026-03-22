@@ -16,6 +16,7 @@ click-repl==0.3.0
 cron_descriptor==2.0.6
 cryptography==46.0.5
 defusedxml==0.7.1
+python-magic==0.4.27
 distro==1.9.0
 Django==5.0.14
 django-celery-beat==2.6.0
