@@ -46,7 +46,7 @@ from .services.ai_service import (
 )
 from .services.full_app_service import (
     extract_backend_contract, generate_hono_worker, inject_supabase_client,
-    create_full_app_zip,
+    create_full_app_zip, create_supabase_tables,
 )
 from .throttling import GenerateFreeThrottle, SpecThrottle
 from .tasks import generate_preview, process_inline_images
@@ -997,6 +997,18 @@ def publish_full_app_view(request):
             "anon_key": supabase_anon_key if has_supabase else None,
             "error": None,
         }
+
+        # 4b. Auto-create Supabase tables from contract (best effort)
+        if has_supabase:
+            table_result = create_supabase_tables(
+                supabase_url=deploy_res["api_url"],
+                supabase_anon_key=deploy_res["anon_key"],
+                contract=contract,
+            )
+            if table_result["tables_created"]:
+                logger.info("[FullApp] Tables created in Supabase: %s", table_result["tables_created"])
+            if table_result["errors"]:
+                logger.warning("[FullApp] Table creation errors (non-fatal): %s", table_result["errors"])
 
         # 5. Inject Supabase client into frontend pages (only if credentials provided)
         if has_supabase:

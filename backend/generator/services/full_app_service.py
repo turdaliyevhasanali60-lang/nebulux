@@ -383,72 +383,251 @@ database_id = "{db_id}"
             logger.exception("Deployment exception")
             return {"error": str(e), "url": None}
 
-def inject_supabase_client(pages_dict: Dict[str, str], supabase_url: str, supabase_anon_key: str, contract: Dict[str, Any]) -> Dict[str, str]:
+_SUPABASE_WIRING_SYSTEM_PROMPT = """You are an expert frontend JavaScript developer specializing in Supabase integration.
+
+You will receive:
+1. A complete HTML page (with inline CSS and JS)
+2. A backend contract describing the database tables, endpoints, and auth requirements
+3. Supabase project URL and anon key
+
+YOUR TASK:
+Surgically rewrite ONLY the JavaScript parts of this page to use Supabase. Do NOT change:
+- Any HTML structure or elements
+- Any CSS styles or classes
+- Any text content or copy
+- Any images or assets
+
+WHAT TO CHANGE (JavaScript only):
+1. SUPABASE INIT: Add this at the top of the first <script> tag (or in a new <script> before </head>):
+   ```
+   const _sb = window.supabase.createClient('SUPABASE_URL', 'SUPABASE_ANON_KEY');
+   window.db = _sb;
+   ```
+
+2. AUTH WIRING: If there are login/signup forms:
+   - Wire signup forms to: `_sb.auth.signUp({ email, password })`
+   - Wire login forms to: `_sb.auth.signInWithPassword({ email, password })`
+   - Wire logout buttons to: `_sb.auth.signOut()`
+   - Add auth state listener: `_sb.auth.onAuthStateChange((event, session) => { ... })`
+   - Show/hide sections based on auth state
+
+3. DATA FETCHING: Replace mock/hardcoded data arrays with real Supabase queries:
+   - Lists → `_sb.from('table').select('*')`
+   - Single items → `_sb.from('table').select('*').eq('id', id).single()`
+   - On page load, fetch data and render it into existing DOM elements
+
+4. FORM SUBMISSIONS: Wire forms that submit data to:
+   - Create → `_sb.from('table').insert({ ...formData })`
+   - Update → `_sb.from('table').update({ ...formData }).eq('id', id)`
+   - Delete → `_sb.from('table').delete().eq('id', id)`
+
+5. ADMIN PANEL: If the page has a dashboard/admin section:
+   - Add a simple admin toggle (only visible when user is authenticated)
+   - Show all records from relevant tables in a simple table
+   - Add delete buttons per row
+   - Add a simple "Add new" form
+
+6. ERROR HANDLING: Wrap all Supabase calls in try/catch and show user-friendly error messages using existing UI patterns (existing alert/toast elements if present, or a simple div).
+
+7. REALTIME (optional): If the page has a live feed or notifications section, add:
+   `_sb.channel('table').on('postgres_changes', { event: '*', schema: 'public', table: 'tablename' }, payload => { ... }).subscribe()`
+
+STRICT RULES:
+- Return ONLY the complete modified HTML — no explanations, no markdown fences
+- Keep ALL existing HTML exactly as-is
+- Keep ALL existing CSS exactly as-is
+- Only modify or add <script> tags
+- Use vanilla JS only — no React, no Vue, no build step
+- Handle loading states by toggling existing elements' visibility
+- The Supabase CDN script tag must be the FIRST thing before </head>:
+  `<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>`
+- All Supabase calls must be async/await
+- Always check `const { data, error } = await _sb.from(...)` pattern
+"""
+
+
+def wire_supabase_into_page(
+    html: str,
+    supabase_url: str,
+    supabase_anon_key: str,
+    contract: Dict[str, Any],
+    slug: str = "page"
+) -> str:
     """
-    Injects Supabase JS SDK into each HTML page via CDN.
-    Adds auth helpers if contract requires auth.
-    Replaces naive fetch('/api/...') patterns with Supabase SDK equivalents.
+    Uses AI to surgically rewrite only the JavaScript in an HTML page
+    to use Supabase for auth, data, and admin functionality.
+    Returns the modified HTML.
     """
-    supabase_init = f"""
-  <!-- Supabase Backend — powered by Nebulux -->
+    from .model_registry import MODEL_REGISTRY
+
+    cfg = MODEL_REGISTRY.get("gemini-2.5-flash")
+    if not cfg:
+        cfg = get_model_config("edit")
+
+    cleaned_html = re.sub(r'src="data:[^"]+"', 'src="[base64-image-removed]"', html)
+
+    user_content = f"""PAGE: {slug}
+
+SUPABASE URL: {supabase_url}
+SUPABASE ANON KEY: {supabase_anon_key}
+
+BACKEND CONTRACT:
+{json.dumps(contract, indent=2)}
+
+HTML TO WIRE:
+{cleaned_html}"""
+
+    try:
+        logger.info("[FullApp] Wiring Supabase into page: %s (%d chars)", slug, len(html))
+        response = _dispatch(cfg, _SUPABASE_WIRING_SYSTEM_PROMPT, user_content, max_tokens=32000)
+        raw_text, tokens = _extract_text(response, cfg)
+        logger.info("[FullApp] Supabase wiring complete for %s. Tokens: %d", slug, tokens)
+
+        result = raw_text.strip()
+        if result.startswith("```html"):
+            result = result[7:]
+        if result.startswith("```"):
+            result = result[3:]
+        if result.endswith("```"):
+            result = result[:-3]
+        result = result.strip()
+
+        return _merge_wired_scripts(html, result)
+
+    except Exception as exc:
+        logger.exception("[FullApp] Supabase wiring failed for page %s: %s", slug, exc)
+        fallback = html
+        sdk_tag = f"""
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script>
     const _sb = window.supabase.createClient('{supabase_url}', '{supabase_anon_key}');
     window.db = _sb;
   </script>"""
+        if "</head>" in fallback:
+            fallback = fallback.replace("</head>", sdk_tag + "\n</head>", 1)
+        return fallback
 
-    auth_helpers = ""
-    if contract.get("auth_required"):
-        auth_helpers = """
-  <script>
-    window.nbxSignUp  = (email, pass) => _sb.auth.signUp({ email, password: pass });
-    window.nbxSignIn  = (email, pass) => _sb.auth.signInWithPassword({ email, password: pass });
-    window.nbxSignOut = () => _sb.auth.signOut();
-    window.nbxGetUser = () => _sb.auth.getUser();
-    _sb.auth.onAuthStateChange((event, session) => {
-      window._nbxSession = session;
-      document.dispatchEvent(new CustomEvent('nbx:authchange', { detail: { event, session } }));
-    });
-  </script>"""
 
+def _merge_wired_scripts(original_html: str, wired_html: str) -> str:
+    """
+    Extracts all <script> tags from wired_html and merges them into original_html.
+    Preserves the original HTML/CSS exactly while only updating JS.
+    """
+    script_pattern = re.compile(r'<script[\s\S]*?</script>', re.IGNORECASE)
+    wired_scripts = script_pattern.findall(wired_html)
+
+    if not wired_scripts:
+        return original_html
+
+    original_no_scripts = script_pattern.sub('', original_html)
+
+    scripts_html = '\n'.join(wired_scripts)
+    if "</body>" in original_no_scripts:
+        result = original_no_scripts.replace("</body>", scripts_html + "\n</body>", 1)
+    elif "</html>" in original_no_scripts:
+        result = original_no_scripts.replace("</html>", scripts_html + "\n</html>", 1)
+    else:
+        result = original_no_scripts + scripts_html
+
+    return result
+
+
+def create_supabase_tables(supabase_url: str, supabase_anon_key: str, contract: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Creates tables in Supabase using the PostgREST SQL endpoint.
+    Best-effort — errors are logged but never block the ZIP download.
+    Returns { success: bool, tables_created: [...], errors: [...] }
+    """
+    import requests as _requests
+
+    tables = contract.get("database", {}).get("tables", [])
+    if not tables:
+        logger.info("[FullApp] No tables in contract — skipping table creation")
+        return {"success": True, "tables_created": [], "errors": []}
+
+    type_map = {
+        "string": "text", "text": "text", "varchar": "text",
+        "integer": "integer", "int": "integer", "bigint": "bigint",
+        "boolean": "boolean", "bool": "boolean",
+        "float": "real", "decimal": "real",
+        "datetime": "timestamptz", "timestamp": "timestamptz",
+        "json": "jsonb", "uuid": "uuid",
+    }
+
+    tables_created = []
+    errors = []
+
+    for table in tables:
+        table_name = table.get("name", "").lower().replace(" ", "_")
+        if not table_name:
+            continue
+
+        cols = []
+        for col in table.get("columns", []):
+            col_name = col.get("name", "id")
+            pg_type = type_map.get(col.get("type", "text").lower(), "text")
+            is_primary = col.get("primary", False)
+
+            if is_primary and pg_type in ("integer", "bigint"):
+                col_def = f"{col_name} serial primary key"
+            elif is_primary and pg_type == "uuid":
+                col_def = f"{col_name} uuid primary key default gen_random_uuid()"
+            elif is_primary:
+                col_def = f"{col_name} {pg_type} primary key"
+            else:
+                null_str = "" if col.get("nullable", True) else " not null"
+                col_def = f"{col_name} {pg_type}{null_str}"
+            cols.append(col_def)
+
+        if not cols:
+            continue
+
+        sql = f"create table if not exists {table_name} ({', '.join(cols)});"
+
+        try:
+            res = _requests.post(
+                f"{supabase_url.rstrip('/')}/rest/v1/rpc/query",
+                headers={
+                    "apikey": supabase_anon_key,
+                    "Authorization": f"Bearer {supabase_anon_key}",
+                    "Content-Type": "application/json",
+                },
+                json={"query": sql},
+                timeout=30,
+            )
+            if res.ok:
+                tables_created.append(table_name)
+                logger.info("[FullApp] Created table: %s", table_name)
+            else:
+                errors.append(f"{table_name}: {res.text[:100]}")
+                logger.warning("[FullApp] Table creation failed for %s: %s", table_name, res.text[:100])
+        except Exception as exc:
+            errors.append(f"{table_name}: {str(exc)}")
+            logger.warning("[FullApp] Table creation exception for %s: %s", table_name, exc)
+
+    return {
+        "success": len(errors) == 0,
+        "tables_created": tables_created,
+        "errors": errors,
+    }
+
+
+def inject_supabase_client(pages_dict: Dict[str, str], supabase_url: str, supabase_anon_key: str, contract: Dict[str, Any]) -> Dict[str, str]:
+    """
+    Uses AI to surgically wire Supabase into each HTML page.
+    Replaces mock data, wires auth forms, adds admin panel functionality.
+    Falls back to simple SDK injection if AI wiring fails.
+    """
     patched = {}
     for slug, html in pages_dict.items():
-        # Inject before </head>
-        if "</head>" in html:
-            new_html = html.replace("</head>", supabase_init + auth_helpers + "\n</head>", 1)
-        else:
-            new_html = supabase_init + auth_helpers + html
-
-        # Replace fetch('/api/table') GET patterns with Supabase select()
-        for endpoint in contract.get("endpoints", []):
-            path = endpoint.get("path", "")
-            method = endpoint.get("method", "GET").upper()
-            table_match = re.search(r'/api/(\w+)', path)
-            if not table_match:
-                continue
-            table = table_match.group(1)
-
-            if method == "GET":
-                new_html = re.sub(
-                    rf"fetch\(['\"]/?api/{table}/?['\"]([^)]*)\)",
-                    f"_sb.from('{table}').select()",
-                    new_html
-                )
-            elif method == "POST":
-                new_html = re.sub(
-                    rf"fetch\(['\"]/?api/{table}/?['\"],\s*\{{[^}}]*method:\s*['\"]POST['\"][^}}]*\}}[^)]*\)",
-                    f"_sb.from('{table}').insert(data)",
-                    new_html
-                )
-            elif method == "DELETE":
-                new_html = re.sub(
-                    rf"fetch\(['\"]/?api/{table}/?['\"],\s*\{{[^}}]*method:\s*['\"]DELETE['\"][^}}]*\}}[^)]*\)",
-                    f"_sb.from('{table}').delete().eq('id', id)",
-                    new_html
-                )
-
-        patched[slug] = new_html
-
+        logger.info("[FullApp] Processing page: %s", slug)
+        patched[slug] = wire_supabase_into_page(
+            html=html,
+            supabase_url=supabase_url,
+            supabase_anon_key=supabase_anon_key,
+            contract=contract,
+            slug=slug,
+        )
     return patched
 
 
