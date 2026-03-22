@@ -1321,7 +1321,7 @@ import {
     return html
       .replace(
         /<script\s+src="https:\/\/cdn\.tailwindcss\.com[^"]*"[^>]*><\/script>/gi,
-        '<script src="/static/css/tailwind.min.js"></script>'
+        '<script src="https://nebulux.one/static/css/tailwind.min.js"></script>'
       )
       .replace(
         /<script\s+src="https:\/\/cdn\.jsdelivr\.net\/npm\/@supabase[^"]*"[^>]*><\/script>/gi,
