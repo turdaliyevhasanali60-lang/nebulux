@@ -4501,16 +4501,11 @@ $$('.device-btn').forEach(btn => {
   });
 });
 
-/* ============================================================
-   SELECT MODE BUTTON
-============================================================ */
-document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('selectModeBtn')?.addEventListener('click', () => setSelectMode(!state.selectMode));
-});
 
 /* ============================================================
    ELEMENT EDITOR EVENTS
 ============================================================ */
+$('#selectModeBtn')?.addEventListener('click', () => setSelectMode(!state.selectMode));
 el.editorSubmit.addEventListener('click', sendElementEdit);
 
 // Inline text edit button
