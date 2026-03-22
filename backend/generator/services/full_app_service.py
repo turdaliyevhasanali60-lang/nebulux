@@ -421,6 +421,13 @@ WHAT TO CHANGE (JavaScript only):
    - Update → `_sb.from('table').update({ ...formData }).eq('id', id)`
    - Delete → `_sb.from('table').delete().eq('id', id)`
 
+CRITICAL DATABASE RULE:
+- ONLY insert fields that exist in the backend contract's database schema
+- NEVER invent new fields like is_read, status, priority, or any field not in the contract
+- If you want a field like is_read, you cannot add it — it does not exist in the table
+- The INSERT object must ONLY contain columns listed in the contract's table definition
+- Before writing any .insert({...}) call, check the contract's columns list and use ONLY those
+
 5. ADMIN PANEL: If the page has a dashboard/admin section:
    - Add a simple admin toggle (only visible when user is authenticated)
    - Show all records from relevant tables in a simple table
