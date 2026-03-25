@@ -649,40 +649,33 @@
     const s = window.scrollY;
     const h = window.innerHeight;
 
-    // True parallax: planets drift upward at 0.5× the scroll speed,
-    // creating a sense of depth — content overtakes the background.
-    const parallaxY = s * 0.5;
-    window._planetParallaxY          = parallaxY;
-    window._planetTransitionProgress  = Math.min(1, s / h);
+    window._planetTransitionProgress = Math.min(1, s / h);
 
-    // Fade timeline: full opacity until 40 % of one viewport scrolled,
-    // then smoothly fade to 0 at 130 % of one viewport scrolled.
-    const fadeStart = h * 0.4;
-    const fadeEnd   = h * 1.3;
-
+    // Giant planet (right): drifts right and fades out as user scrolls
     if (giantPlanetEl) {
       giantPlanetEl.style.transition = 'none';
-      giantPlanetEl.style.transform  =
-        `translateY(calc(-50% - ${parallaxY.toFixed(2)}px))`;
-      const fade = s < fadeStart
-        ? 0.84
-        : Math.max(0, 0.84 * (1 - (s - fadeStart) / (fadeEnd - fadeStart)));
+      const driftX = s * 0.4; // drift right at 0.4× scroll speed
+      giantPlanetEl.style.transform = `translateY(-50%) translateX(${driftX.toFixed(2)}px)`;
+      const fade = Math.max(0, 0.84 * (1 - s / (h * 0.8)));
       giantPlanetEl.style.opacity = fade.toFixed(3);
     }
 
+    // Second planet (left): invisible on landing, drifts in from left on scroll
     if (secondPlanetEl) {
       secondPlanetEl.style.transition = 'none';
-      secondPlanetEl.style.transform  =
-        `translateY(calc(-50% - ${parallaxY.toFixed(2)}px))`;
-      const fade = s < fadeStart
-        ? 0.65
-        : Math.max(0, 0.65 * (1 - (s - fadeStart) / (fadeEnd - fadeStart)));
-      // Store for footer-interaction to read
-      secondPlanetEl._baseOpacity = fade;
-      secondPlanetEl._baseTx      = 0;
-      secondPlanetEl.style.opacity = fade.toFixed(3);
+      const enterStart = h * 0.15;
+      const enterEnd   = h * 0.9;
+      const raw   = s < enterStart ? 0 : Math.min(1, (s - enterStart) / (enterEnd - enterStart));
+      const eased = raw < 0.5 ? 2 * raw * raw : -1 + (4 - 2 * raw) * raw; // easeInOut
+      const driftX  = -60 * (1 - eased); // slides in from −60 px offset
+      const opacity = 0.65 * eased;
+      secondPlanetEl._baseOpacity = opacity;
+      secondPlanetEl._baseTx      = driftX;
+      secondPlanetEl.style.transform = `translateY(-50%) translateX(${driftX.toFixed(2)}px)`;
+      secondPlanetEl.style.opacity   = opacity.toFixed(3);
     }
 
+    window._planetParallaxY = 0;
     document.body.classList.toggle('planet-transition-active', s > h * 0.3);
   }
 
@@ -890,15 +883,15 @@
     }
 
     function commit() {
-      const baseOpacity  = secondPlanet._baseOpacity  ?? 0;
-      const parallaxY    = window._planetParallaxY    ?? 0;
-      const footerTop    = footer.getBoundingClientRect().top;
-      const scrolledIn   = window.innerHeight - footerTop;
+      const baseOpacity = secondPlanet._baseOpacity ?? 0;
+      const baseTx      = secondPlanet._baseTx      ?? 0;
+      const footerTop   = footer.getBoundingClientRect().top;
+      const scrolledIn  = window.innerHeight - footerTop;
       if (scrolledIn <= 0 && currentNudge < 0.5) return;
       secondPlanet.style.transition = 'none';
       if (currentNudge >= 0.5)
         secondPlanet.style.transform =
-          `translateY(calc(-50% - ${(parallaxY + currentNudge).toFixed(2)}px))`;
+          `translateY(calc(-50% - ${currentNudge.toFixed(2)}px)) translateX(${baseTx.toFixed(2)}px)`;
       const fadeStart = window.innerHeight * 0.15, fadeEnd = window.innerHeight * 0.65;
       let opacity = baseOpacity;
       if (scrolledIn > fadeStart) {
