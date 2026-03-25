@@ -59,8 +59,8 @@
   .second-planet {
     position: fixed;
     left: -45%;
-    top: 85%;
-    transform: translateY(-50%) translateX(-20%);
+    top: 68%;
+    transform: translateY(-50%);
     width: 95vw;
     height: 95vw;
     max-width: 1600px;
@@ -69,7 +69,6 @@
     pointer-events: none;
     opacity: 0;
     filter: drop-shadow(30px 0 80px rgba(200, 180, 140, 0.12));
-    transition: transform 4.5s cubic-bezier(0.25, 0.1, 0.25, 1), opacity 4.5s ease;
   }
 
   .second-planet img {
@@ -1374,11 +1373,9 @@
       max-width: none;
       max-height: none;
       left: -110%;
-      transform: translateY(-50%) translateX(-20%);
+      transform: translateY(-50%);
       filter: drop-shadow(30px 0 100px rgba(200, 180, 140, 0.2));
     }
-
-    /* mobile second-planet active position handled by JS scroll-progress */
 
     /* Prevent text selection on mobile */
     body {
@@ -1482,7 +1479,10 @@
     text-decoration: none;
     display: inline-block;
     margin-bottom: 0.5em;
+    transition: color 0.3s ease;
   }
+
+  .footer-brand .footer-logo:hover { color: var(--accent-2); }
 
   .footer-brand .footer-tagline {
     font-size: 14px;
@@ -1538,18 +1538,18 @@
 
   .footer-copy {
     font-size: 13px;
-    color: rgba(220, 225, 255, 0.7);
+    color: rgba(220, 225, 255, 0.4);
     font-weight: 300;
     letter-spacing: 0.3px;
+    display: block;
+    margin-top: 0.55em;
+    transition: color 0.3s ease;
   }
 
   .footer-socials {
-    position: absolute;
-    right: 7%;
-    top: 25%;
-    transform: translateY(-50%);
     display: flex;
     gap: 12px;
+    margin-top: 1em;
   }
 
   .footer-socials a {
@@ -1562,7 +1562,7 @@
     justify-content: center;
     color: rgba(200, 205, 255, 0.5);
     text-decoration: none;
-    transition: all 0.25s ease;
+    transition: all 0.3s ease;
   }
 
   .footer-socials a svg {

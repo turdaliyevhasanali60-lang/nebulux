@@ -574,41 +574,45 @@ export function initApp() {
     }, 1000);
   }
 
-  /* ========== SCROLL-BASED PLANET TRANSITION ========== */
+  /* ========== SCROLL-BASED PLANET TRANSITION (parallax 0.5× speed) ========== */
   const giantPlanetEl  = document.getElementById('giantPlanet');
   const secondPlanetEl = document.getElementById('secondPlanet');
   window._planetTransitionProgress = 0;
+  window._planetParallaxY = 0;
 
   function handlePlanetTransition() {
-    const s = window.scrollY, h = window.innerHeight;
-    const raw = Math.max(0, Math.min(1, (s - h * 0.1) / (h * 2 - h * 0.1)));
-    const t   = raw * raw * (3 - 2 * raw);
+    const s = window.scrollY;
+    const h = window.innerHeight;
+
+    // Overall progress: 0 at top → 1 at 90% of viewport scrolled.
+    // Split into two phases so only ONE planet is ever prominent at a time:
+    //   Phase 1 (t 0→0.5): right planet exits right + fades out
+    //   Phase 2 (t 0.5→1): left planet slides in from left + fades in
+    const t = Math.min(1, s / (h * 0.9));
     window._planetTransitionProgress = t;
 
+    // Right planet: exits during first half (t 0→0.5)
     if (giantPlanetEl) {
-      if (raw === 0) {
-        giantPlanetEl.style.transform  = '';
-        giantPlanetEl.style.opacity    = '';
-        giantPlanetEl.style.transition = '';
-      } else {
-        giantPlanetEl.style.transition = 'none';
-        giantPlanetEl.style.transform  = `translateY(-50%) translateX(${(t * 160).toFixed(2)}%)`;
-        giantPlanetEl.style.opacity    = (0.84 * (1 - t)).toFixed(3);
-      }
+      const tR = Math.min(1, t / 0.5); // 0→1 over first half
+      giantPlanetEl.style.transition = 'none';
+      giantPlanetEl.style.transform  = `translateY(-50%) translateX(${(tR * 200).toFixed(2)}px)`;
+      giantPlanetEl.style.opacity    = (0.84 * (1 - tR)).toFixed(3);
     }
 
+    // Left planet: enters during second half (t 0.5→1)
     if (secondPlanetEl) {
-      const isMobile = window.innerWidth <= 768;
-      const tx       = -20 + (isMobile ? 15 : 20) * t;
-      const opacity  = 0.84 * t;
+      const tL    = Math.max(0, Math.min(1, (t - 0.5) / 0.5)); // 0→1 over second half
+      const driftX  = -60 * (1 - tL);
+      const opacity = 0.65 * tL;
       secondPlanetEl._baseOpacity = opacity;
-      secondPlanetEl._baseTx      = tx;
+      secondPlanetEl._baseTx      = driftX;
       secondPlanetEl.style.transition = 'none';
-      secondPlanetEl.style.transform  = `translateY(-50%) translateX(${tx.toFixed(2)}%)`;
+      secondPlanetEl.style.transform  = `translateY(-50%) translateX(${driftX.toFixed(2)}px)`;
       secondPlanetEl.style.opacity    = opacity.toFixed(3);
     }
 
-    document.body.classList.toggle('planet-transition-active', t > 0.5);
+    window._planetParallaxY = 0;
+    document.body.classList.toggle('planet-transition-active', t > 0.3);
   }
 
   window.addEventListener('scroll', handlePlanetTransition, { passive: true });
@@ -808,14 +812,15 @@ export function initApp() {
     }
 
     function commit() {
-      const baseTx      = secondPlanet._baseTx      ?? -20;
-      const baseOpacity = secondPlanet._baseOpacity  ?? 0;
+      const baseOpacity = secondPlanet._baseOpacity ?? 0;
+      const baseTx      = secondPlanet._baseTx      ?? 0;
       const footerTop   = footer.getBoundingClientRect().top;
       const scrolledIn  = window.innerHeight - footerTop;
       if (scrolledIn <= 0 && currentNudge < 0.5) return;
       secondPlanet.style.transition = 'none';
       if (currentNudge >= 0.5)
-        secondPlanet.style.transform = `translateY(calc(-50% - ${currentNudge.toFixed(2)}px)) translateX(${baseTx.toFixed(2)}%)`;
+        secondPlanet.style.transform =
+          `translateY(calc(-50% - ${currentNudge.toFixed(2)}px)) translateX(${baseTx.toFixed(2)}px)`;
       const fadeStart = window.innerHeight * 0.15, fadeEnd = window.innerHeight * 0.65;
       let opacity = baseOpacity;
       if (scrolledIn > fadeStart) {
@@ -844,39 +849,71 @@ export function initApp() {
     onScroll();
   })();
 
-  /* ========== HERO SNAP ON SCROLL UP ========== */
+  /* ========== HERO SOFT SNAP-TO-TOP ========== */
+  /* When scrolling back up and the hero fills ≥60% of the viewport,
+     slowly glide to the top. Cancels instantly if the user scrolls down. */
   (function () {
-    const hero = document.querySelector('.hero');
-    if (!hero) return;
+    let prevScrollY = window.scrollY;
+    let snapping    = false;
+    let rafId       = null;
 
-    let lastScrollY = window.scrollY;
-    let snapQueued  = false;
+    function easeOutQuart(t) { return 1 - Math.pow(1 - t, 4); }
 
-    function snapToTop() {
-      snapQueued = false;
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+    function cancel() {
+      if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+      snapping = false;
+    }
+
+    function glideToTop() {
+      const start     = window.scrollY;
+      const duration  = 1400;
+      const startTime = performance.now();
+      let   lastSetY  = start;
+
+      function onWheel(e)  { if (e.deltaY > 0) { cancel(); teardown(); } }
+      function onTouch()   { cancel(); teardown(); }
+      function teardown()  {
+        window.removeEventListener('wheel',      onWheel);
+        window.removeEventListener('touchstart', onTouch);
+      }
+      window.addEventListener('wheel',      onWheel, { passive: true });
+      window.addEventListener('touchstart', onTouch, { passive: true });
+
+      function step(now) {
+        if (window.scrollY > lastSetY + 10) { cancel(); teardown(); return; }
+        const elapsed  = now - startTime;
+        const progress = Math.min(1, elapsed / duration);
+        const y        = start * (1 - easeOutQuart(progress));
+        window.scrollTo(0, y);
+        lastSetY = y;
+        if (progress < 1) {
+          rafId = requestAnimationFrame(step);
+        } else {
+          snapping = false;
+          rafId    = null;
+          teardown();
+        }
+      }
+
+      snapping = true;
+      rafId    = requestAnimationFrame(step);
     }
 
     window.addEventListener('scroll', function () {
-      const currentScrollY = window.scrollY;
-      const scrollingUp    = currentScrollY < lastScrollY;
-      lastScrollY = currentScrollY;
+      const curr    = window.scrollY;
+      const goingUp = curr < prevScrollY;
+      prevScrollY   = curr;
 
-      if (!scrollingUp || currentScrollY === 0) return;
+      if (!goingUp || snapping || curr === 0) return;
 
-      const heroRect  = hero.getBoundingClientRect();
-      const vpHeight  = window.innerHeight;
+      const hero = document.querySelector('.hero');
+      if (!hero) return;
 
-      const visibleTop    = Math.max(0, heroRect.top);
-      const visibleBottom = Math.min(vpHeight, heroRect.bottom);
-      const visibleHeight = Math.max(0, visibleBottom - visibleTop);
-      const heroHeight    = heroRect.height;
-      const visibleRatio  = heroHeight > 0 ? visibleHeight / heroHeight : 0;
+      const rect         = hero.getBoundingClientRect();
+      const visiblePx    = Math.max(0, Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0));
+      const visibleRatio = visiblePx / window.innerHeight;
 
-      if (visibleRatio >= 0.60 && !snapQueued) {
-        snapQueued = true;
-        setTimeout(snapToTop, 80);
-      }
+      if (visibleRatio >= 0.6) glideToTop();
     }, { passive: true });
   })();
 
