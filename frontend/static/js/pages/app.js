@@ -649,27 +649,31 @@
     const s = window.scrollY;
     const h = window.innerHeight;
 
-    // Single shared progress: 0 at top, 1 when 80% of viewport is scrolled.
-    // Both planets use this same value so the swap is perfectly simultaneous.
-    const t = Math.min(1, s / (h * 0.8));
+    // Overall progress: 0 at top → 1 at 90% of viewport scrolled.
+    // Split into two phases so only ONE planet is ever prominent at a time:
+    //   Phase 1 (t 0→0.5): right planet exits right + fades out
+    //   Phase 2 (t 0.5→1): left planet slides in from left + fades in
+    const t = Math.min(1, s / (h * 0.9));
     window._planetTransitionProgress = t;
 
-    // Right planet: visible → exits right + fades out
+    // Right planet: exits during first half (t 0→0.5)
     if (giantPlanetEl) {
+      const tR = Math.min(1, t / 0.5); // 0→1 over first half
       giantPlanetEl.style.transition = 'none';
-      giantPlanetEl.style.transform  = `translateY(-50%) translateX(${(t * 180).toFixed(2)}px)`;
-      giantPlanetEl.style.opacity    = (0.84 * (1 - t)).toFixed(3);
+      giantPlanetEl.style.transform  = `translateY(-50%) translateX(${(tR * 200).toFixed(2)}px)`;
+      giantPlanetEl.style.opacity    = (0.84 * (1 - tR)).toFixed(3);
     }
 
-    // Left planet: hidden → slides in from left + fades in (exact mirror)
+    // Left planet: enters during second half (t 0.5→1)
     if (secondPlanetEl) {
-      secondPlanetEl.style.transition = 'none';
-      const driftX  = -60 * (1 - t); // −60 px → 0 as t goes 0→1
-      const opacity = 0.65 * t;
+      const tL    = Math.max(0, Math.min(1, (t - 0.5) / 0.5)); // 0→1 over second half
+      const driftX  = -60 * (1 - tL);
+      const opacity = 0.65 * tL;
       secondPlanetEl._baseOpacity = opacity;
       secondPlanetEl._baseTx      = driftX;
-      secondPlanetEl.style.transform = `translateY(-50%) translateX(${driftX.toFixed(2)}px)`;
-      secondPlanetEl.style.opacity   = opacity.toFixed(3);
+      secondPlanetEl.style.transition = 'none';
+      secondPlanetEl.style.transform  = `translateY(-50%) translateX(${driftX.toFixed(2)}px)`;
+      secondPlanetEl.style.opacity    = opacity.toFixed(3);
     }
 
     window._planetParallaxY = 0;
