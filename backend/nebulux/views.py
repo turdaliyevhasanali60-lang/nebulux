@@ -1,26 +1,13 @@
 # nebulux/views.py
 from django.shortcuts import redirect, render
 from django.contrib import messages
-from django.conf import settings
-from django.http import HttpResponse, Http404
 import math
 from rest_framework.views import exception_handler
 from rest_framework.exceptions import Throttled
 from rest_framework.response import Response
 
-
-def react_app(request):
-    """Serve the React SPA index.html for all frontend routes."""
-    index_path = settings.FRONTEND_DIR / "react-dist" / "index.html"
-    if not index_path.exists():
-        raise Http404("React build not found. Run: cd frontend-react && npm run build")
-    with open(index_path, "r", encoding="utf-8") as f:
-        content = f.read()
-    return HttpResponse(content, content_type="text/html")
-
-
 def custom_404(request, exception):
-    return react_app(request)
+    return render(request, "404.html", status=404)
 
 
 def templates_coming_soon(request):

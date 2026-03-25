@@ -369,12 +369,7 @@ STATIC_ROOT      = BASE_DIR.parent / "staticfiles"
 # deployment (e.g. a backend-only Docker container) should not crash on
 # collectstatic just because the frontend directory is absent.
 _frontend_static = FRONTEND_DIR / "static"
-_react_dist      = FRONTEND_DIR / "react-dist"
-STATICFILES_DIRS = []
-if _frontend_static.exists():
-    STATICFILES_DIRS.append(_frontend_static)
-if _react_dist.exists():
-    STATICFILES_DIRS.append(_react_dist)
+STATICFILES_DIRS = [_frontend_static] if _frontend_static.exists() else []
 
 # ARCH-3: Explicit path to builder.css for reliable design token injection.
 # The AI service reads CSS custom properties from this file and injects them

@@ -3,8 +3,9 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import include, path
+from django.views.generic import TemplateView
 
-from .views import react_app, templates_coming_soon
+from .views import templates_coming_soon
 
 urlpatterns = [
     path("admin/", admin.site.urls),
@@ -19,19 +20,21 @@ urlpatterns = [
     path("api/payments/", include("payments.urls")),
     path("api/publishing/", include("publishing.urls")),
 
+    # ── Frontend pages (Django serves them directly — no CORS needed in prod)
+    path("",           TemplateView.as_view(template_name="index.html"),    name="index"),
+    path("builder/",   TemplateView.as_view(template_name="builder.html"),  name="builder"),
+    path("pricing/",   TemplateView.as_view(template_name="pricing.html"),  name="pricing"),
+    path("settings/", TemplateView.as_view(template_name="settings.html"), name="settings"),
+
     # ── Templates page — DISABLED (Coming Soon) ──────────────────────────
     path("templates/", templates_coming_soon, name="templates"),
 
-    # ── React SPA — all frontend routes serve the same index.html
-    path("",               react_app, name="index"),
-    path("builder/",       react_app, name="builder"),
-    path("pricing/",       react_app, name="pricing"),
-    path("settings/",      react_app, name="settings"),
-    path("reset-password/", react_app, name="reset-password"),
-    path("privacy/",       react_app, name="privacy"),
-    path("terms/",         react_app, name="terms"),
-    path("contact/",       react_app, name="contact"),
-    path("404/",           react_app, name="404-preview"),
+    path("reset-password/",  TemplateView.as_view(template_name="index.html"), name="reset-password"),
+    path("404/", TemplateView.as_view(template_name="404.html"), name="404-preview"),
+    path('privacy/', TemplateView.as_view(template_name='privacy.html'), name='privacy'),
+    path('terms/',   TemplateView.as_view(template_name='terms.html'),   name='terms'),
+    path('contact/', TemplateView.as_view(template_name='contact.html'), name='contact'),
+
 ]
 
 # ── Serve media files in development (thumbnail previews, uploads, etc.)
