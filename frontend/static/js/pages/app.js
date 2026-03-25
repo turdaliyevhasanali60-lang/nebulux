@@ -649,26 +649,23 @@
     const s = window.scrollY;
     const h = window.innerHeight;
 
-    window._planetTransitionProgress = Math.min(1, s / h);
+    // Single shared progress: 0 at top, 1 when 80% of viewport is scrolled.
+    // Both planets use this same value so the swap is perfectly simultaneous.
+    const t = Math.min(1, s / (h * 0.8));
+    window._planetTransitionProgress = t;
 
-    // Giant planet (right): drifts right and fades out as user scrolls
+    // Right planet: visible → exits right + fades out
     if (giantPlanetEl) {
       giantPlanetEl.style.transition = 'none';
-      const driftX = s * 0.4; // drift right at 0.4× scroll speed
-      giantPlanetEl.style.transform = `translateY(-50%) translateX(${driftX.toFixed(2)}px)`;
-      const fade = Math.max(0, 0.84 * (1 - s / (h * 0.8)));
-      giantPlanetEl.style.opacity = fade.toFixed(3);
+      giantPlanetEl.style.transform  = `translateY(-50%) translateX(${(t * 180).toFixed(2)}px)`;
+      giantPlanetEl.style.opacity    = (0.84 * (1 - t)).toFixed(3);
     }
 
-    // Second planet (left): invisible on landing, drifts in from left on scroll
+    // Left planet: hidden → slides in from left + fades in (exact mirror)
     if (secondPlanetEl) {
       secondPlanetEl.style.transition = 'none';
-      const enterStart = h * 0.15;
-      const enterEnd   = h * 0.9;
-      const raw   = s < enterStart ? 0 : Math.min(1, (s - enterStart) / (enterEnd - enterStart));
-      const eased = raw < 0.5 ? 2 * raw * raw : -1 + (4 - 2 * raw) * raw; // easeInOut
-      const driftX  = -60 * (1 - eased); // slides in from −60 px offset
-      const opacity = 0.65 * eased;
+      const driftX  = -60 * (1 - t); // −60 px → 0 as t goes 0→1
+      const opacity = 0.65 * t;
       secondPlanetEl._baseOpacity = opacity;
       secondPlanetEl._baseTx      = driftX;
       secondPlanetEl.style.transform = `translateY(-50%) translateX(${driftX.toFixed(2)}px)`;
@@ -676,7 +673,7 @@
     }
 
     window._planetParallaxY = 0;
-    document.body.classList.toggle('planet-transition-active', s > h * 0.3);
+    document.body.classList.toggle('planet-transition-active', t > 0.3);
   }
 
   window.addEventListener('scroll', handlePlanetTransition, { passive: true });
