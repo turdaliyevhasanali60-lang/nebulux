@@ -686,7 +686,7 @@
 
   /* ========== HERO SOFT SNAP-TO-TOP ========== */
   /* When scrolling back up and the hero fills ≥60% of the viewport,
-     slowly glide to the top with a custom eased animation. */
+     slowly glide to the top. Cancels instantly if the user scrolls down. */
   (function () {
     let prevScrollY = window.scrollY;
     let snapping    = false;
@@ -694,25 +694,48 @@
 
     function easeOutQuart(t) { return 1 - Math.pow(1 - t, 4); }
 
+    function cancel() {
+      if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+      snapping = false;
+    }
+
     function glideToTop() {
       const start     = window.scrollY;
-      const duration  = 1400; // ms — slow and cinematic
+      const duration  = 1400;
       const startTime = performance.now();
+      let   lastSetY  = start;
+
+      // Cancel the moment the user pushes the wheel/trackpad downward
+      function onWheel(e)  { if (e.deltaY > 0) { cancel(); teardown(); } }
+      function onTouch()   { cancel(); teardown(); }
+      function teardown()  {
+        window.removeEventListener('wheel',      onWheel);
+        window.removeEventListener('touchstart', onTouch);
+      }
+      window.addEventListener('wheel',      onWheel, { passive: true });
+      window.addEventListener('touchstart', onTouch, { passive: true });
 
       function step(now) {
+        // Also catch scrollbar drags: if scroll jumped above last set position
+        if (window.scrollY > lastSetY + 10) { cancel(); teardown(); return; }
+
         const elapsed  = now - startTime;
         const progress = Math.min(1, elapsed / duration);
-        window.scrollTo(0, start * (1 - easeOutQuart(progress)));
+        const y        = start * (1 - easeOutQuart(progress));
+        window.scrollTo(0, y);
+        lastSetY = y;
+
         if (progress < 1) {
           rafId = requestAnimationFrame(step);
         } else {
           snapping = false;
           rafId    = null;
+          teardown();
         }
       }
 
-      rafId    = requestAnimationFrame(step);
       snapping = true;
+      rafId    = requestAnimationFrame(step);
     }
 
     window.addEventListener('scroll', function () {
