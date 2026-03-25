@@ -3,21 +3,23 @@
   "configurations": [
     {
       "name": "Django Dev Server",
-      "runtimeExecutable": "python",
-      "runtimeArgs": ["manage.py", "runserver", "0.0.0.0:8000"],
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd backend && python manage.py runserver 0.0.0.0:8000"],
       "port": 8000
     },
     {
       "name": "Celery Worker",
-      "runtimeExecutable": "celery",
-      "runtimeArgs": ["-A", "nebulux", "worker", "--loglevel=info"],
-      "port": null
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd backend && celery -A nebulux worker --loglevel=info"],
+      "port": 3001,
+      "autoPort": false
     },
     {
       "name": "Celery Beat Scheduler",
-      "runtimeExecutable": "celery",
-      "runtimeArgs": ["-A", "nebulux", "beat", "--loglevel=info"],
-      "port": null
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd backend && celery -A nebulux beat --loglevel=info"],
+      "port": 3002,
+      "autoPort": false
     },
     {
       "name": "Redis",

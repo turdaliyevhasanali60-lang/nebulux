@@ -731,31 +731,6 @@
     obs.observe(el);
   });
 
-  /* ========== NEBULA BRIDGE — hero fades as galaxy section enters ========== */
-  (function () {
-    const heroContent = document.querySelector('.hero');
-    const showcase    = document.getElementById('showcase');
-    if (!heroContent || !showcase) return;
-
-    heroContent.style.transition = 'opacity 0.7s ease, transform 0.7s ease';
-
-    const bridgeObs = new IntersectionObserver(entries => {
-      entries.forEach(entry => {
-        if (entry.isIntersecting) {
-          // Galaxy section entering — gently pull the hero content back
-          heroContent.style.opacity   = '0.25';
-          heroContent.style.transform = 'scale(0.97)';
-        } else {
-          // User scrolled back — restore hero
-          heroContent.style.opacity   = '1';
-          heroContent.style.transform = 'scale(1)';
-        }
-      });
-    }, { threshold: 0.12 });
-
-    bridgeObs.observe(showcase);
-  })();
-
   /* ========== REFERENCE FILE ATTACH ========== */
   (function () {
     const referenceBtn   = document.getElementById('referenceBtn');
@@ -952,40 +927,5 @@
     onScroll();
   })();
 
-  /* ========== HERO SNAP ON SCROLL UP ========== */
-  (function () {
-    const hero = document.querySelector('.hero');
-    if (!hero) return;
-
-    let lastScrollY = window.scrollY;
-    let snapQueued  = false;
-
-    function snapToTop() {
-      snapQueued = false;
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-
-    window.addEventListener('scroll', function () {
-      const currentScrollY = window.scrollY;
-      const scrollingUp    = currentScrollY < lastScrollY;
-      lastScrollY = currentScrollY;
-
-      if (!scrollingUp || currentScrollY === 0) return;
-
-      const heroRect  = hero.getBoundingClientRect();
-      const vpHeight  = window.innerHeight;
-
-      const visibleTop    = Math.max(0, heroRect.top);
-      const visibleBottom = Math.min(vpHeight, heroRect.bottom);
-      const visibleHeight = Math.max(0, visibleBottom - visibleTop);
-      const heroHeight    = heroRect.height;
-      const visibleRatio  = heroHeight > 0 ? visibleHeight / heroHeight : 0;
-
-      if (visibleRatio >= 0.60 && !snapQueued) {
-        snapQueued = true;
-        setTimeout(snapToTop, 80);
-      }
-    }, { passive: true });
-  })();
 
 })();

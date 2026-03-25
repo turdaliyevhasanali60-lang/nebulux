@@ -16,7 +16,6 @@
     font-family: 'Outfit', sans-serif;
     background: var(--bg-deep);
     color: var(--text-primary);
-    overflow-x: hidden;
     min-height: 100vh;
   }
 
@@ -160,6 +159,7 @@
     min-height: 100vh;
     display: flex;
     flex-direction: column;
+    overflow-x: hidden;
   }
 
   /* NAV */
@@ -279,13 +279,13 @@
     transform: translateY(14px);
     animation: wordReveal 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
   }
-  .hero h1 .word-1 { animation-delay: 0.6s; }
-  .hero h1 .word-2 { animation-delay: 0.7s; }
-  .hero h1 .word-3 { animation-delay: 0.8s; }
-  .hero h1 .word-4 { animation-delay: 0.9s; }
-  .hero h1 .word-5 { animation-delay: 1.0s; }
-  .hero h1 .word-6 { animation-delay: 1.1s; }
-  .hero h1 .word-7 { animation-delay: 1.2s; }
+  .hero h1 .word-1 { animation-delay: 0.05s; }
+  .hero h1 .word-2 { animation-delay: 0.10s; }
+  .hero h1 .word-3 { animation-delay: 0.15s; }
+  .hero h1 .word-4 { animation-delay: 0.20s; }
+  .hero h1 .word-5 { animation-delay: 0.25s; }
+  .hero h1 .word-6 { animation-delay: 0.30s; }
+  .hero h1 .word-7 { animation-delay: 0.35s; }
   .hero h1 .line-break { display: block; }
   @keyframes wordReveal {
     to {
@@ -303,8 +303,6 @@
     margin-top: 0;
     margin-bottom: 48px;
     line-height: 1.7;
-    opacity: 0;
-    animation: fadeSlideUp 0.7s ease-out 1.4s forwards;
   }
 
   /* PROMPT BOX - FIXED LAYOUT */
@@ -312,8 +310,6 @@
     margin-top: 0;
     width: 100%;
     max-width: 560px;
-    opacity: 0;
-    animation: fadeSlideUp 0.7s ease-out 1.6s forwards;
     /* Constrain maximum height to prevent infinite expansion */
     max-height: 65vh;
     display: flex;
@@ -3020,7 +3016,7 @@
 }
 
 /* ── MOBILE CORE FIXES ─────────────────────────────────────────── */
-html, body { overflow-x: hidden; max-width: 100vw; }
+html { overflow-x: hidden; max-width: 100vw; }
 
 @media (max-width: 768px) {
   /* Nebulas: clip to viewport */
