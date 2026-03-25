@@ -686,15 +686,39 @@
 
   /* ========== HERO SOFT SNAP-TO-TOP ========== */
   /* When scrolling back up and the hero fills ≥60% of the viewport,
-     smoothly snap to top so the hero is always seen in full. */
+     slowly glide to the top with a custom eased animation. */
   (function () {
     let prevScrollY = window.scrollY;
     let snapping    = false;
+    let rafId       = null;
+
+    function easeOutQuart(t) { return 1 - Math.pow(1 - t, 4); }
+
+    function glideToTop() {
+      const start     = window.scrollY;
+      const duration  = 1400; // ms — slow and cinematic
+      const startTime = performance.now();
+
+      function step(now) {
+        const elapsed  = now - startTime;
+        const progress = Math.min(1, elapsed / duration);
+        window.scrollTo(0, start * (1 - easeOutQuart(progress)));
+        if (progress < 1) {
+          rafId = requestAnimationFrame(step);
+        } else {
+          snapping = false;
+          rafId    = null;
+        }
+      }
+
+      rafId    = requestAnimationFrame(step);
+      snapping = true;
+    }
 
     window.addEventListener('scroll', function () {
-      const curr      = window.scrollY;
-      const goingUp   = curr < prevScrollY;
-      prevScrollY     = curr;
+      const curr    = window.scrollY;
+      const goingUp = curr < prevScrollY;
+      prevScrollY   = curr;
 
       if (!goingUp || snapping || curr === 0) return;
 
@@ -705,11 +729,7 @@
       const visiblePx    = Math.max(0, Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0));
       const visibleRatio = visiblePx / window.innerHeight;
 
-      if (visibleRatio >= 0.6) {
-        snapping = true;
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-        setTimeout(() => { snapping = false; }, 900);
-      }
+      if (visibleRatio >= 0.6) glideToTop();
     }, { passive: true });
   })();
 
