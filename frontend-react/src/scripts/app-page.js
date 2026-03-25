@@ -913,7 +913,9 @@ export function initApp() {
       const visiblePx    = Math.max(0, Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0));
       const visibleRatio = visiblePx / window.innerHeight;
 
-      if (visibleRatio >= 0.6) glideToTop();
+      // Only snap when very close to top (< 15% of viewport height scrolled)
+      // so the user can freely scroll the page without getting yanked back.
+      if (visibleRatio >= 0.6 && curr < window.innerHeight * 0.15) glideToTop();
     }, { passive: true });
   })();
 
