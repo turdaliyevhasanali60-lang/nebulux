@@ -639,41 +639,51 @@
     }, 1000);
   }
 
-  /* ========== SCROLL-BASED PLANET TRANSITION ========== */
+  /* ========== SCROLL-BASED PLANET TRANSITION (parallax 0.5× speed) ========== */
   const giantPlanetEl  = document.getElementById('giantPlanet');
   const secondPlanetEl = document.getElementById('secondPlanet');
   window._planetTransitionProgress = 0;
+  window._planetParallaxY = 0;
 
   function handlePlanetTransition() {
-    const s = window.scrollY, h = window.innerHeight;
-    const raw = Math.max(0, Math.min(1, (s - h * 0.1) / (h * 2 - h * 0.1)));
-    const t   = raw * raw * (3 - 2 * raw);
-    window._planetTransitionProgress = t;
+    const s = window.scrollY;
+    const h = window.innerHeight;
+
+    // True parallax: planets drift upward at 0.5× the scroll speed,
+    // creating a sense of depth — content overtakes the background.
+    const parallaxY = s * 0.5;
+    window._planetParallaxY          = parallaxY;
+    window._planetTransitionProgress  = Math.min(1, s / h);
+
+    // Fade timeline: full opacity until 40 % of one viewport scrolled,
+    // then smoothly fade to 0 at 130 % of one viewport scrolled.
+    const fadeStart = h * 0.4;
+    const fadeEnd   = h * 1.3;
 
     if (giantPlanetEl) {
-      if (raw === 0) {
-        giantPlanetEl.style.transform  = '';
-        giantPlanetEl.style.opacity    = '';
-        giantPlanetEl.style.transition = '';
-      } else {
-        giantPlanetEl.style.transition = 'none';
-        giantPlanetEl.style.transform  = `translateY(-50%) translateX(${(t * 160).toFixed(2)}%)`;
-        giantPlanetEl.style.opacity    = (0.84 * (1 - t)).toFixed(3);
-      }
+      giantPlanetEl.style.transition = 'none';
+      giantPlanetEl.style.transform  =
+        `translateY(calc(-50% - ${parallaxY.toFixed(2)}px))`;
+      const fade = s < fadeStart
+        ? 0.84
+        : Math.max(0, 0.84 * (1 - (s - fadeStart) / (fadeEnd - fadeStart)));
+      giantPlanetEl.style.opacity = fade.toFixed(3);
     }
 
     if (secondPlanetEl) {
-      const isMobile = window.innerWidth <= 768;
-      const tx       = -20 + (isMobile ? 15 : 20) * t;
-      const opacity  = 0.84 * t;
-      secondPlanetEl._baseOpacity = opacity;
-      secondPlanetEl._baseTx      = tx;
       secondPlanetEl.style.transition = 'none';
-      secondPlanetEl.style.transform  = `translateY(-50%) translateX(${tx.toFixed(2)}%)`;
-      secondPlanetEl.style.opacity    = opacity.toFixed(3);
+      secondPlanetEl.style.transform  =
+        `translateY(calc(-50% - ${parallaxY.toFixed(2)}px))`;
+      const fade = s < fadeStart
+        ? 0.65
+        : Math.max(0, 0.65 * (1 - (s - fadeStart) / (fadeEnd - fadeStart)));
+      // Store for footer-interaction to read
+      secondPlanetEl._baseOpacity = fade;
+      secondPlanetEl._baseTx      = 0;
+      secondPlanetEl.style.opacity = fade.toFixed(3);
     }
 
-    document.body.classList.toggle('planet-transition-active', t > 0.5);
+    document.body.classList.toggle('planet-transition-active', s > h * 0.3);
   }
 
   window.addEventListener('scroll', handlePlanetTransition, { passive: true });
@@ -720,6 +730,31 @@
     el.style.transition = 'all 0.8s ease';
     obs.observe(el);
   });
+
+  /* ========== NEBULA BRIDGE — hero fades as galaxy section enters ========== */
+  (function () {
+    const heroContent = document.querySelector('.hero');
+    const showcase    = document.getElementById('showcase');
+    if (!heroContent || !showcase) return;
+
+    heroContent.style.transition = 'opacity 0.7s ease, transform 0.7s ease';
+
+    const bridgeObs = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          // Galaxy section entering — gently pull the hero content back
+          heroContent.style.opacity   = '0.25';
+          heroContent.style.transform = 'scale(0.97)';
+        } else {
+          // User scrolled back — restore hero
+          heroContent.style.opacity   = '1';
+          heroContent.style.transform = 'scale(1)';
+        }
+      });
+    }, { threshold: 0.12 });
+
+    bridgeObs.observe(showcase);
+  })();
 
   /* ========== REFERENCE FILE ATTACH ========== */
   (function () {
@@ -880,14 +915,15 @@
     }
 
     function commit() {
-      const baseTx      = secondPlanet._baseTx      ?? -20;
-      const baseOpacity = secondPlanet._baseOpacity  ?? 0;
-      const footerTop   = footer.getBoundingClientRect().top;
-      const scrolledIn  = window.innerHeight - footerTop;
+      const baseOpacity  = secondPlanet._baseOpacity  ?? 0;
+      const parallaxY    = window._planetParallaxY    ?? 0;
+      const footerTop    = footer.getBoundingClientRect().top;
+      const scrolledIn   = window.innerHeight - footerTop;
       if (scrolledIn <= 0 && currentNudge < 0.5) return;
       secondPlanet.style.transition = 'none';
       if (currentNudge >= 0.5)
-        secondPlanet.style.transform = `translateY(calc(-50% - ${currentNudge.toFixed(2)}px)) translateX(${baseTx.toFixed(2)}%)`;
+        secondPlanet.style.transform =
+          `translateY(calc(-50% - ${(parallaxY + currentNudge).toFixed(2)}px))`;
       const fadeStart = window.innerHeight * 0.15, fadeEnd = window.innerHeight * 0.65;
       let opacity = baseOpacity;
       if (scrolledIn > fadeStart) {
