@@ -684,6 +684,35 @@
   window.addEventListener('load',   handlePlanetTransition);
   window.addEventListener('resize', handlePlanetTransition);
 
+  /* ========== HERO SOFT SNAP-TO-TOP ========== */
+  /* When scrolling back up and the hero fills ≥60% of the viewport,
+     smoothly snap to top so the hero is always seen in full. */
+  (function () {
+    let prevScrollY = window.scrollY;
+    let snapping    = false;
+
+    window.addEventListener('scroll', function () {
+      const curr      = window.scrollY;
+      const goingUp   = curr < prevScrollY;
+      prevScrollY     = curr;
+
+      if (!goingUp || snapping || curr === 0) return;
+
+      const hero = document.querySelector('.hero');
+      if (!hero) return;
+
+      const rect         = hero.getBoundingClientRect();
+      const visiblePx    = Math.max(0, Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0));
+      const visibleRatio = visiblePx / window.innerHeight;
+
+      if (visibleRatio >= 0.6) {
+        snapping = true;
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        setTimeout(() => { snapping = false; }, 900);
+      }
+    }, { passive: true });
+  })();
+
   /* ========== PROMPT CHIPS ========== */
   const promptData = {
     travel:   'Design a travel planning app with an immersive interface. Homepage: hero search with destination autocomplete, date picker, and traveler count selector. Features: interactive map with pins for saved destinations, personalized itinerary builder with drag-and-drop timeline, hotel and flight comparison cards with filters, real-time weather and currency conversion, photo gallery from other travelers. Use calming blues and greens with warm sunset accent colors, smooth transitions, and modern card-based layouts.',
