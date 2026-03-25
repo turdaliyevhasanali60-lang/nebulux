@@ -217,21 +217,48 @@
     if (creditsUpgradeBtn) creditsUpgradeBtn.onclick = scrollToStandard;
     if (creditOverlayBtn)  creditOverlayBtn.onclick  = scrollToStandard;
 
-    // ── Standard button: show "Current Plan" when already subscribed ──
-    if (plan === 'standard') {
-      const standardBtn = document.getElementById('buyStandardBtn');
-      if (standardBtn) {
-        standardBtn.innerHTML = `
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
-               stroke="currentColor" stroke-width="2.2"
-               stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="20 6 9 17 4 12"/>
-          </svg>
-          Current Plan`;
+    const CHECK_SVG = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+
+    const freeBtn     = document.getElementById('buyFreeBtn');
+    const standardBtn = document.getElementById('buyStandardBtn');
+    const proBtn      = document.getElementById('buyProBtn');
+
+    // ── Free plan button ──────────────────────────────────────
+    if (freeBtn) {
+      if (plan === 'free') {
+        freeBtn.innerHTML = CHECK_SVG + ' Current Plan';
+        freeBtn.disabled = true;
+        freeBtn.style.opacity = '0.5';
+      } else {
+        // Paid users: free plan is available by canceling subscription
+        freeBtn.textContent = 'Included';
+        freeBtn.disabled = true;
+        freeBtn.style.opacity = '0.35';
+      }
+    }
+
+    // ── Standard button ───────────────────────────────────────
+    if (standardBtn) {
+      if (plan === 'standard') {
+        standardBtn.innerHTML = CHECK_SVG + ' Current Plan';
         standardBtn.disabled = true;
         standardBtn.classList.remove('plan-btn-active');
         standardBtn.style.opacity = '0.5';
+      } else if (plan === 'pro') {
+        // Pro users: standard would be a downgrade
+        standardBtn.textContent = 'Downgrade';
+        standardBtn.disabled = true;
+        standardBtn.classList.remove('plan-btn-active');
+        standardBtn.style.opacity = '0.35';
       }
+    }
+
+    // ── Pro button ────────────────────────────────────────────
+    if (proBtn && plan === 'pro') {
+      proBtn.innerHTML = CHECK_SVG + ' Current Plan';
+      proBtn.disabled = true;
+      proBtn.classList.remove('plan-btn-active');
+      proBtn.style.opacity = '0.5';
     }
   }
 

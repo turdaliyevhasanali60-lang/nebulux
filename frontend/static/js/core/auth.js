@@ -825,7 +825,6 @@
     $('nbGoogR')?.addEventListener('click', triggerGoogle);
     setupDropdown();
     $('dropdownSignoutBtn')?.addEventListener('click', () => { $('profileDropdown')?.classList.remove('open'); openSignout(); });
-// FIND (line ~825):
     $('dropdownAccountBtn')?.addEventListener('click', () => { $('profileDropdown')?.classList.remove('open'); window.location.href = '/settings/'; });
     $('dropdownUpgradeBtn')?.addEventListener('click', () => { $('profileDropdown')?.classList.remove('open'); window.location.href = '/settings/?tab=subscription'; });
     $('accountModalClose')?.addEventListener('click', closeSettings);
